@@ -147,6 +147,12 @@ export const THAI_DISHES = [
       ['mayonnaise sauce', 'Salad dressing, mayonnaise, regular', 8], ['chili sauce', 'Sauce, ready-to-serve, pepper or hot', 4],
       ['lettuce', 'Lettuce, iceberg (includes crisphead types), raw', 8]],
   },
+  // KFC Thailand's spicy wings, sold in pieces: half of KFC's Extra Crispy wing (USDA) with chili powder.
+  {
+    id: 'kfc-wingz-zabb', name: 'KFC Wingz Zabb (วิงซ์แซ่บ), spicy fried wings', portion: '1 piece',
+    items: [['KFC Extra Crispy wing', 'KFC, Fried Chicken, EXTRA CRISPY, Wing, meat and skin with breading', 34],
+      ['chili powder', 'Spices, pepper, red or cayenne', 1]],
+  },
   {
     id: 'kafae-yen', name: 'Thai iced coffee (กาแฟเย็น)', portion: '1 glass',
     items: [['coffee', 'Beverages, coffee, brewed, prepared with tap water', 150], ['condensed milk', CONDENSED, 30], ['evaporated milk', EVAPORATED, 30],

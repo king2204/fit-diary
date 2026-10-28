@@ -45,6 +45,9 @@ const NOODLES = 'Noodles, egg, cooked, enriched, with added salt';
 const WRAP = 'Chicken fillet wrap sandwich, fried, from fast food';
 const SAUCED_WINGS = 'Chicken "wings" with other sauces or seasoning, from fast food / restaurant';
 const ROLL = 'th:kfc-chick-n-roll';
+const ZABB = 'th:kfc-wingz-zabb';
+const KFC_WINGS = ['KFC, Fried Chicken, EXTRA CRISPY, Wing, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Wing, meat and skin with breading'];
+const KFC_POP = ['KFC, Popcorn Chicken', 'Chicken tenders or strips, breaded, from fast food'];
 const BEST = {
   'chicken breast': [COOKED_BREAST, RAW_BREAST],
   chicken: [COOKED_BREAST, RAW_BREAST, 'Chicken, broilers or fryers, thigh, meat only, cooked, roasted'],
@@ -120,7 +123,7 @@ const BEST = {
   noodles: [NOODLES],
   'egg noodles': [NOODLES],
   // Fast food and Korean chicken: the closest USDA generic items (no official Thai menu data exists).
-  kfc: [ROLL, 'KFC, Fried Chicken, ORIGINAL RECIPE, Breast, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Thigh, meat and skin with breading',
+  kfc: [ROLL, ZABB, 'KFC, Fried Chicken, ORIGINAL RECIPE, Breast, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Thigh, meat and skin with breading',
     'KFC, Fried Chicken, ORIGINAL RECIPE, Drumstick, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Wing, meat and skin with breading',
     'KFC, Popcorn Chicken', 'Chicken fillet wrap sandwich, fried, from fast food'],
   'chicken roll': [ROLL, WRAP],
@@ -184,6 +187,11 @@ const BEST = {
   'cha yen': ['th:cha-yen'],
   'thai iced coffee': ['th:kafae-yen'],
 };
+// KFC Thailand items, in the spellings people type.
+for (const q of ['wing zab', 'wing zabb', 'wingz zab', 'wingz zabb', 'wingzabb', 'wings zabb', 'kfc wing zab', 'kfc wingz zabb', 'kfc wings',
+  'kfc wing', 'วิงซ์แซ่บ', 'วิงแซ่บ']) BEST[q] = [ZABB, ...KFC_WINGS];
+for (const q of ['pop chicken', 'chicken pop', 'kfc pop', 'kfc pop chicken', 'kfc chicken pop', 'popcorn chicken', 'kfc popcorn chicken', 'ไก่ป๊อป',
+  'ไก่ป็อป']) BEST[q] = KFC_POP;
 const FRACTIONS = { 0.25: '1/4', 0.33: '1/3', 0.5: '1/2', 0.67: '2/3', 0.75: '3/4', 1.5: '1 1/2' };
 const round = (v) => Number(v.toPrecision(3));
 
