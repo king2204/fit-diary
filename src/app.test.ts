@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { barChart, lineChart } from './charts';
+import { barChart, donut, lineChart, ring } from './charts';
 import { parseOffProduct, parseUsdaFood, parseUsdaPortions } from './foods';
+import { diaryCsv } from './csv';
 import { esc } from './html';
-import { bmr, calorieGoal, exerciseKcal, macroGrams, scale } from './nutrition';
+import { bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, scale } from './nutrition';
 import {
-  addFood, defaultData, foodTotals, goalsFor, parseData, setWeight, shiftDate, unitsFor, weightOn, type Food, type Unit,
+  addFood, copyMeal, day, defaultData, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, parseData, projection, recipeFood,
+  saveMeal, setWeight, shiftDate, streak, unitsFor, weekExercise, weightOn, weightProgress, type Food, type Unit,
 } from './store';
 
 const apple: Food = {
@@ -138,9 +140,124 @@ describe('diary storage', () => {
   });
 });
 
+describe('goals and projections', () => {
+  const profile = { sex: 'male' as const, birthYear: 1996, heightCm: 180, activity: 'moderate' as const, weeklyChangeKg: -0.5 };
+
+  it('tracks kg to go, weeks left and when the goal weight is reached', () => {
+    const d = { ...defaultData(), profile };
+    setWeight(d, '2026-09-01', 80);
+    setWeight(d, '2026-10-01', 78);
+    expect(weightProgress(d)).toMatchObject({ start: 80, current: 78, goal: null, toGo: null, reached: false });
+    d.goals.goalWeightKg = 75;
+    expect(weightProgress(d)).toMatchObject({ toGo: 3, reached: false, weeksLeft: 6 });
+    d.profile = { ...profile, weeklyChangeKg: 0.25 }; // gaining while the goal is lower: no finish date
+    expect(weightProgress(d)!.weeksLeft).toBeNull();
+    setWeight(d, '2026-10-20', 74.8);
+    expect(weightProgress(d)).toMatchObject({ reached: true, weeksLeft: null });
+    d.goals.goalWeightKg = 85; // a goal to gain weight
+    const gain = weightProgress(d)!;
+    expect(gain.reached).toBe(false);
+    expect(gain.toGo).toBeCloseTo(-10.2);
+    expect(gain.weeksLeft).toBeCloseTo(40.8);
+  });
+
+  it('projects the weight in five weeks from one day of eating', () => {
+    const d = { ...defaultData(), profile };
+    expect(projection(d, '2026-10-26')).toBeNull();
+    setWeight(d, '2026-10-26', 80);
+    // Maintenance 1780 * 1.55 = 2759 kcal. Eating 1000 kcal of apples and burning 200: net 800 kcal.
+    addFood(d, '2026-10-26', 'lunch', apple, 1000 / 0.52, g);
+    day(d, '2026-10-26').exercises.push({ id: 'x', name: 'Run', minutes: 20, kcal: 200 });
+    expect(projection(d, '2026-10-26')).toBeCloseTo(80 + ((800 - 2759) * 35) / 7700);
+    expect(fiveWeekWeight(70, 2000, 2000)).toBe(70);
+  });
+
+  it('counts the logging streak, starting yesterday while today is empty', () => {
+    const d = defaultData();
+    for (const date of ['2026-10-24', '2026-10-25', '2026-10-26']) addFood(d, date, 'lunch', apple, 100, g);
+    addFood(d, '2026-10-22', 'lunch', apple, 100, g);
+    expect(streak(d, '2026-10-26')).toBe(3);
+    expect(streak(d, '2026-10-27')).toBe(3);
+    expect(streak(d, '2026-10-28')).toBe(0);
+  });
+
+  it('counts this week’s workouts from Monday', () => {
+    const d = defaultData();
+    day(d, '2026-10-25').exercises.push({ id: 'a', name: 'Sunday run', minutes: 40, kcal: 300 }); // last week
+    day(d, '2026-10-26').exercises.push({ id: 'b', name: 'Run', minutes: 30, kcal: 250 }); // Monday
+    day(d, '2026-10-28').exercises.push({ id: 'c', name: 'Bench press', minutes: 0, kcal: 0, sets: 3, reps: 10, kg: 40 });
+    expect(weekExercise(d, '2026-10-28')).toEqual({ workouts: 2, minutes: 30 });
+  });
+
+  it('splits calories between macros and suggests a meal by the clock', () => {
+    const pct = macroPct({ ...apple.per100, carbs: 50, protein: 25, fat: 0 })!;
+    expect([pct.carbs, pct.protein, pct.fat].map(Math.round)).toEqual([67, 33, 0]);
+    expect(macroPct(scale(apple.per100, 0))).toBeNull();
+    expect([7, 12, 16, 19, 23].map(mealForHour)).toEqual(['breakfast', 'lunch', 'snacks', 'dinner', 'snacks']);
+  });
+});
+
+describe('meals and recipes', () => {
+  it('copies a meal to another day and saves it for later', () => {
+    const d = defaultData();
+    addFood(d, '2026-10-26', 'breakfast', apple, 1, { label: 'medium', grams: 182 });
+    addFood(d, '2026-10-26', 'lunch', apple, 50, g);
+    expect(copyMeal(d, '2026-10-26', '2026-10-27', 'breakfast')).toBe(1);
+    const copied = d.days['2026-10-27'].foods[0];
+    expect(copied).toMatchObject({ meal: 'breakfast', grams: 182, amount: 1, unit: 'medium' });
+    expect(copied.id).not.toBe(d.days['2026-10-26'].foods[0].id);
+    const saved = saveMeal(d, 'Usual breakfast', d.days['2026-10-26'].foods.filter((e) => e.meal === 'breakfast'));
+    logItems(d, '2026-10-28', 'snacks', saved.items);
+    logItems(d, '2026-10-28', 'snacks', saved.items);
+    expect(d.days['2026-10-28'].foods.map((e) => e.meal)).toEqual(['snacks', 'snacks']);
+    expect(new Set(d.days['2026-10-28'].foods.map((e) => e.id)).size).toBe(2);
+    expect(itemsTotals(saved.items).kcal).toBeCloseTo(94.64);
+  });
+
+  it('turns a recipe into a food with per-serving portions', () => {
+    const rice: Food = { id: 'usda:2', name: 'Rice', per100: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, sugar: 0, fiber: 0.4, sodium: 1 } };
+    const r = { id: 'r1', name: 'Fruit rice', servings: 4, items: [
+      { id: 'a', food: apple, grams: 200 }, { id: 'b', food: rice, grams: 600 },
+    ] };
+    const f = recipeFood(r)!;
+    expect(f).toMatchObject({ id: 'recipe:r1', name: 'Fruit rice', servingGrams: 200 });
+    expect(scale(f.per100, 800).kcal).toBeCloseTo(104 + 780); // the whole dish
+    expect(recipeFood({ ...r, items: [] })).toBeNull();
+  });
+
+  it('keeps old backups loadable and fills in new settings', () => {
+    const old = { version: 1, profile: { sex: 'male' }, goals: { carbsPct: 40 }, days: {}, weights: [], myFoods: [], recent: [], usdaKey: '', mealNames: { snacks: 'Snack' } };
+    const d = parseData(JSON.stringify(old));
+    expect(d.goals).toMatchObject({ carbsPct: 40, goalWeightKg: null, steps: 10000 });
+    expect(d.mealNames).toEqual({ breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snacks: 'Snack' });
+    expect(d).toMatchObject({ myMeals: [], recipes: [], fasts: [], measurements: {} });
+  });
+
+  it('exports the diary as CSV, quoting text and defusing formulas', () => {
+    const d = defaultData();
+    addFood(d, '2026-10-26', 'breakfast', { ...apple, name: '=HYPERLINK("x")', brand: 'A, B' }, 1, { label: 'medium', grams: 182 });
+    day(d, '2026-10-26').waterMl = 500;
+    setWeight(d, '2026-10-27', 70.5);
+    const lines = diaryCsv(d).trim().split('\r\n');
+    expect(lines[0]).toBe('Date,Type,Meal,Name,Amount,Calories,Carbs (g),Fat (g),Protein (g),Sugar (g),Fiber (g),Sodium (mg)');
+    expect(lines[1]).toBe(`2026-10-26,Food,Breakfast,"'=HYPERLINK(""x"") (A, B)",1 medium (182 g),94.6,25.5,0.4,0.5,18.2,4.4,1.8`);
+    expect(lines.slice(2)).toEqual(['2026-10-26,Water,,Water,500 ml,,,,,,,', '2026-10-27,Weight,,Weight,70.5 kg,,,,,,,']);
+  });
+});
+
 describe('safety and charts', () => {
   it('escapes text from food databases', () => {
     expect(esc('<img src=x onerror="a">')).toBe('&lt;img src=x onerror=&quot;a&quot;&gt;');
+  });
+
+  it('draws rings and donuts, with gaps only between segments', () => {
+    expect(ring(0, 100, 80, 8, '', '0')).not.toContain('class="fill"');
+    expect(ring(150, 100, 80, 8, 'over', '150')).toContain('class="fill"');
+    const one = donut([{ value: 10, cls: 'carbs' }, { value: 0, cls: 'fat' }], 100, 10, '');
+    expect(one.match(/class="arc /g)).toHaveLength(1);
+    expect(one).toContain(`stroke-dasharray="${2 * Math.PI * 45} `);
+    expect(donut([{ value: 1, cls: 'carbs' }, { value: 1, cls: 'fat' }], 100, 10, '').match(/class="arc /g)).toHaveLength(2);
+    expect(lineChart([{ date: '2026-10-01', value: 80 }, { date: '2026-10-08', value: 79 }], 'kg', 75)).toContain('Goal 75');
   });
 
   it('draws charts with escaped labels and a table view', () => {

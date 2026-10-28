@@ -76,9 +76,9 @@ export function barChart(pts: BarPoint[], unit: string, goal?: number): string {
 const dayNum = (date: string) => Date.parse(`${date}T00:00:00Z`) / 86400000;
 const shortDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-// A 2 px line over time; markers when there are few enough points to read.
-export function lineChart(pts: LinePoint[], unit: string): string {
-  const vals = pts.map((p) => p.value);
+// A 2 px line over time; markers when there are few enough points to read; an optional dashed goal line.
+export function lineChart(pts: LinePoint[], unit: string, goal?: number | null): string {
+  const vals = pts.map((p) => p.value).concat(goal ?? []);
   const lo = Math.min(...vals);
   const hi = Math.max(...vals);
   const spread = Math.max(hi - lo, 1);
@@ -98,6 +98,8 @@ export function lineChart(pts: LinePoint[], unit: string): string {
       ${frame(yTicks, y, unit)}<line class="axis" x1="${PAD.left}" x2="${W - PAD.right}" y1="${PAD.top + PLOT_H}" y2="${PAD.top + PLOT_H}"/>
       <text class="tick" x="${PAD.left}" y="${H - 6}">${esc(shortDate(first))}</text>
       ${last !== first ? `<text class="tick" x="${W - PAD.right}" y="${H - 6}" text-anchor="end">${esc(shortDate(last))}</text>` : ''}
+      ${goal ? `<line class="goal" x1="${PAD.left}" x2="${W - PAD.right}" y1="${y(goal)}" y2="${y(goal)}"/>
+        <text class="goal-label" x="${W - PAD.right}" y="${y(goal) - 4}" text-anchor="end">Goal ${fmt(goal)}</text>` : ''}
       <path class="line" d="${line}"/>${markers}
       <line class="crosshair" y1="${PAD.top}" y2="${PAD.top + PLOT_H}" visibility="hidden"/>
       <circle class="focus" r="5" visibility="hidden"/>
@@ -150,4 +152,40 @@ export function wireCharts(root: HTMLElement): void {
     svg.addEventListener('pointerdown', (e) => svg.dispatchEvent(new PointerEvent('pointermove', e)));
     svg.addEventListener('pointerleave', hide);
   }
+}
+
+// A circular meter: how much of `goal` is reached. `center` is HTML shown in the middle.
+export function ring(value: number, goal: number, size: number, stroke: number, cls: string, center: string): string {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const share = goal > 0 ? Math.min(1, Math.max(0, value / goal)) : 0;
+  const mid = size / 2;
+  return `<div class="ring ${cls}" style="width:${size}px;height:${size}px">
+    <svg viewBox="0 0 ${size} ${size}" aria-hidden="true">
+      <circle class="track" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"/>
+      ${share > 0 ? `<circle class="fill" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}" stroke-dasharray="${c * share} ${c}"
+        transform="rotate(-90 ${mid} ${mid})"/>` : ''}
+    </svg><div class="ring-center">${center}</div></div>`;
+}
+
+// Part-to-whole ring with a 2 px gap between segments. Each part's class sets its color.
+export function donut(parts: { value: number; cls: string }[], size: number, stroke: number, center: string): string {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const mid = size / 2;
+  const shown = parts.filter((p) => p.value > 0);
+  const total = shown.reduce((sum, p) => sum + p.value, 0);
+  const gap = shown.length > 1 ? 2 : 0;
+  let at = 0;
+  const segs = shown.map((p) => {
+    const len = (p.value / total) * c;
+    const seg = `<circle class="arc ${p.cls}" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"
+      stroke-dasharray="${Math.max(len - gap, 0.5)} ${c}" stroke-dashoffset="${-at}" transform="rotate(-90 ${mid} ${mid})"/>`;
+    at += len;
+    return seg;
+  }).join('');
+  return `<div class="ring" style="width:${size}px;height:${size}px">
+    <svg viewBox="0 0 ${size} ${size}" aria-hidden="true">
+      <circle class="track" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"/>${segs}
+    </svg><div class="ring-center">${center}</div></div>`;
 }

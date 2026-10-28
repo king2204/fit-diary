@@ -1,4 +1,6 @@
-import { add, calorieGoal, macroGrams, scale, zero, type MacroSplit, type Nutrients, type Profile } from './nutrition';
+import {
+  NUTRIENT_KEYS, add, calorieGoal, fiveWeekWeight, macroGrams, maintenanceKcal, scale, zero, type MacroSplit, type Nutrients, type Profile,
+} from './nutrition';
 
 export interface Food {
   id: string; // 'off:<barcode>', 'usda:<fdcId>' or 'my:<id>'
@@ -29,13 +31,19 @@ export function unitsFor(f: Food): Unit[] {
 export const MEALS = ['breakfast', 'lunch', 'dinner', 'snacks'] as const;
 export type Meal = (typeof MEALS)[number];
 
-export interface FoodEntry {
+export const DEFAULT_MEAL_NAMES: Record<Meal, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snacks: 'Snacks' };
+
+// One food in an amount: a diary entry, an item of a saved meal, or a recipe ingredient.
+export interface MealItem {
   id: string;
-  meal: Meal;
   food: Food; // a copy, so the diary never changes if the database does
   grams: number;
   amount?: number; // as entered, e.g. 1.5 ...
   unit?: string; // ... of this unit label, e.g. "cup, sliced"
+}
+
+export interface FoodEntry extends MealItem {
+  meal: Meal;
 }
 
 export interface ExerciseEntry {
@@ -43,12 +51,18 @@ export interface ExerciseEntry {
   name: string;
   minutes: number;
   kcal: number;
+  sets?: number; // strength training
+  reps?: number;
+  kg?: number;
 }
 
 export interface DayLog {
   foods: FoodEntry[];
   exercises: ExerciseEntry[];
   waterMl: number;
+  steps?: number;
+  notes?: string;
+  complete?: boolean;
 }
 
 export interface Goals extends MacroSplit {
@@ -57,6 +71,48 @@ export interface Goals extends MacroSplit {
   fiberG: number;
   sodiumMg: number;
   waterMl: number;
+  goalWeightKg: number | null;
+  steps: number;
+  workoutsPerWeek: number;
+  minutesPerWorkout: number;
+}
+
+// Foods logged together, like "My usual breakfast".
+export interface SavedMeal {
+  id: string;
+  name: string;
+  items: MealItem[];
+}
+
+// A dish made from ingredients and split into servings.
+export interface Recipe {
+  id: string;
+  name: string;
+  servings: number;
+  items: MealItem[];
+}
+
+export interface MyExercise {
+  id: string;
+  name: string;
+  kcalPerMin: number;
+}
+
+export interface Fast {
+  id: string;
+  start: string; // ISO date-time
+  end?: string; // missing while the fast is running
+  hours: number; // the plan, e.g. 16 for 16:8
+}
+
+export const MEASURES = {
+  bodyfat: 'Body fat (%)', waist: 'Waist (cm)', hips: 'Hips (cm)', chest: 'Chest (cm)', neck: 'Neck (cm)', arm: 'Arm (cm)', thigh: 'Thigh (cm)',
+} as const;
+export type Measure = keyof typeof MEASURES;
+
+export interface Reading {
+  date: string;
+  value: number;
 }
 
 export interface Data {
@@ -65,8 +121,15 @@ export interface Data {
   goals: Goals;
   days: Record<string, DayLog>; // keyed by YYYY-MM-DD
   weights: { date: string; kg: number }[]; // sorted by date
+  measurements: Partial<Record<Measure, Reading[]>>; // each sorted by date
   myFoods: Food[];
+  myMeals: SavedMeal[];
+  recipes: Recipe[];
+  myExercises: MyExercise[];
   recent: Food[];
+  mealNames: Record<Meal, string>;
+  fasts: Fast[]; // newest first
+  goalNoticeDismissed: string | null; // date of the weigh-in when "goal reached" was dismissed
   usdaKey: string;
 }
 
@@ -80,11 +143,21 @@ export function defaultData(): Data {
   return {
     version: 1,
     profile: { sex: 'female', birthYear: 1995, heightCm: 165, activity: 'light', weeklyChangeKg: -0.5 },
-    goals: { kcalOverride: null, carbsPct: 50, proteinPct: 20, fatPct: 30, sugarG: 50, fiberG: 30, sodiumMg: 2300, waterMl: 2000 },
+    goals: {
+      kcalOverride: null, carbsPct: 50, proteinPct: 20, fatPct: 30, sugarG: 50, fiberG: 30, sodiumMg: 2300, waterMl: 2000,
+      goalWeightKg: null, steps: 10000, workoutsPerWeek: 3, minutesPerWorkout: 30,
+    },
     days: {},
     weights: [],
+    measurements: {},
     myFoods: [],
+    myMeals: [],
+    recipes: [],
+    myExercises: [],
     recent: [],
+    mealNames: { ...DEFAULT_MEAL_NAMES },
+    fasts: [],
+    goalNoticeDismissed: null,
     usdaKey: '',
   };
 }
@@ -108,7 +181,9 @@ export function parseData(json: string): Data {
   const d = JSON.parse(json) as Partial<Data>;
   if (d.version !== 1) throw new Error('This is not a Fit Diary backup.');
   const base = defaultData();
-  return { ...base, ...d, profile: { ...base.profile, ...d.profile }, goals: { ...base.goals, ...d.goals } } as Data;
+  return {
+    ...base, ...d, profile: { ...base.profile, ...d.profile }, goals: { ...base.goals, ...d.goals }, mealNames: { ...base.mealNames, ...d.mealNames },
+  } as Data;
 }
 
 export function newId(): string {
@@ -126,6 +201,42 @@ export function peekDay(d: Data, date: string): DayLog | undefined {
 export function addFood(d: Data, date: string, meal: Meal, food: Food, amount: number, unit: Unit): void {
   day(d, date).foods.push({ id: newId(), meal, food, grams: amount * unit.grams, amount, unit: unit.label });
   d.recent = [food, ...d.recent.filter((f) => f.id !== food.id)].slice(0, MAX_RECENT);
+}
+
+// Copies of items with fresh ids, so the same food can sit in the diary more than once.
+function copyItems(items: MealItem[]): MealItem[] {
+  return items.map((it) => ({ id: newId(), food: it.food, grams: it.grams, amount: it.amount, unit: it.unit }));
+}
+
+export function logItems(d: Data, date: string, meal: Meal, items: MealItem[]): void {
+  day(d, date).foods.push(...copyItems(items).map((it) => ({ ...it, meal })));
+}
+
+// Copies one meal's foods from one day to another; returns how many were copied.
+export function copyMeal(d: Data, from: string, to: string, meal: Meal): number {
+  const items = (d.days[from]?.foods ?? []).filter((e) => e.meal === meal);
+  logItems(d, to, meal, items);
+  return items.length;
+}
+
+export function saveMeal(d: Data, name: string, items: MealItem[]): SavedMeal {
+  const meal = { id: newId(), name, items: copyItems(items) };
+  d.myMeals = [meal, ...d.myMeals];
+  return meal;
+}
+
+export function itemsTotals(items: MealItem[]): Nutrients {
+  return items.reduce((t, it) => add(t, scale(it.food.per100, it.grams)), zero());
+}
+
+// A recipe as one food: values per 100 g of the whole dish, and one serving = total weight / servings.
+export function recipeFood(r: Recipe): Food | null {
+  const totalGrams = r.items.reduce((sum, it) => sum + it.grams, 0);
+  if (totalGrams <= 0 || r.servings <= 0) return null;
+  const total = itemsTotals(r.items);
+  const per100 = zero();
+  for (const k of NUTRIENT_KEYS) per100[k] = (total[k] * 100) / totalGrams;
+  return { id: `recipe:${r.id}`, name: r.name, per100, servingGrams: totalGrams / r.servings };
 }
 
 export function foodTotals(log: DayLog | undefined, meal?: Meal): Nutrients {
@@ -147,6 +258,80 @@ export function weightOn(d: Data, date: string): number | null {
 
 export function setWeight(d: Data, date: string, kg: number): void {
   d.weights = [...d.weights.filter((w) => w.date !== date), { date, kg }].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function setReading(d: Data, measure: Measure, date: string, value: number): void {
+  d.measurements[measure] = [...(d.measurements[measure] ?? []).filter((r) => r.date !== date), { date, value }]
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export interface WeightProgress {
+  start: number; // first weigh-in
+  current: number; // latest weigh-in
+  goal: number | null;
+  toGo: number | null; // kg still to lose (positive) or gain (negative)
+  reached: boolean;
+  weeksLeft: number | null; // at the weekly goal; null when it points away from the goal weight
+}
+
+export function weightProgress(d: Data): WeightProgress | null {
+  if (!d.weights.length) return null;
+  const start = d.weights[0].kg;
+  const current = d.weights[d.weights.length - 1].kg;
+  const goal = d.goals.goalWeightKg;
+  if (goal === null) return { start, current, goal, toGo: null, reached: false, weeksLeft: null };
+  const toGo = current - goal;
+  const reached = start >= goal ? current <= goal : current >= goal;
+  const rate = d.profile.weeklyChangeKg;
+  const weeksLeft = !reached && rate !== 0 && Math.sign(rate) === Math.sign(-toGo) ? Math.abs(toGo / rate) : null;
+  return { start, current, goal, toGo, reached, weeksLeft };
+}
+
+// "If every day were like this one, you'd weigh ... in 5 weeks."
+export function projection(d: Data, date: string): number | null {
+  const log = d.days[date];
+  const weight = weightOn(d, date);
+  if (!log?.foods.length || weight === null) return null;
+  const net = foodTotals(log).kcal - exerciseTotal(log);
+  return fiveWeekWeight(weight, maintenanceKcal(d.profile, weight, Number(date.slice(0, 4))), net);
+}
+
+// Days in a row with food logged, up to today (or yesterday while today is still empty).
+export function streak(d: Data, today: string): number {
+  let date = d.days[today]?.foods.length ? today : shiftDate(today, -1);
+  let n = 0;
+  while (d.days[date]?.foods.length) {
+    n++;
+    date = shiftDate(date, -1);
+  }
+  return n;
+}
+
+// Exercise entries and minutes from Monday of `date`'s week up to `date`.
+export function weekExercise(d: Data, date: string): { workouts: number; minutes: number } {
+  const [y, m, dd] = date.split('-').map(Number);
+  const sinceMonday = (new Date(y, m - 1, dd).getDay() + 6) % 7;
+  let workouts = 0;
+  let minutes = 0;
+  for (let i = 0; i <= sinceMonday; i++) {
+    for (const x of d.days[shiftDate(date, -i)]?.exercises ?? []) {
+      workouts++;
+      minutes += x.minutes;
+    }
+  }
+  return { workouts, minutes };
+}
+
+export function activeFast(d: Data): Fast | undefined {
+  return d.fasts[0] && !d.fasts[0].end ? d.fasts[0] : undefined;
+}
+
+// Meal to suggest by time of day.
+export function mealForHour(hour: number): Meal {
+  if (hour < 10) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour >= 17 && hour < 22) return 'dinner';
+  return 'snacks';
 }
 
 export interface DailyGoals extends Nutrients {
