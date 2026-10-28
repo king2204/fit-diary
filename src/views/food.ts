@@ -84,16 +84,17 @@ function resultsHtml(s: AddScreen): string {
         ${s.results.length > 3 ? `<h3 class="list-title">More results</h3>${listHtml(s.results.slice(3), 'results', 3)}` : ''}`
       : `<p class="empty">No foods found for “${esc(s.query)}”. Try other words.</p>`}
     ${s.more ? `<button class="wide" data-act="more-results" ${s.loadingMore ? 'disabled' : ''}>${s.loadingMore ? 'Loading…' : 'Show more results'}</button>` : ''}
-    <p class="muted center">Can’t find it? <button class="link inline" data-act="custom">Create food</button> or
-      <button class="link inline" data-act="scan">scan the barcode</button>.</p>`;
+    ${s.target.kind === 'photo' ? '' : `<p class="muted center">Can’t find it? <button class="link inline" data-act="custom">Create food</button> or
+      <button class="link inline" data-act="scan">scan the barcode</button>.</p>`}`;
 }
 
 export function addView(s: AddScreen): string {
   const d = state.data;
   const diary = s.target.kind === 'diary' ? s.target : null;
+  const photo = s.target.kind === 'photo';
   const title = diary
     ? `<select class="title-select" data-act="target-meal" aria-label="Meal">${MEALS.map((m) => option(m, mealName(m), diary.meal)).join('')}</select>`
-    : '<h1>Add ingredient</h1>';
+    : `<h1>${photo ? 'Choose a food' : 'Add ingredient'}</h1>`;
   const tab = (t: FoodTab, label: string) => `<button data-act="add-tab" data-tab="${t}" class="${s.tab === t ? 'on' : ''}">${label}</button>`;
   const tile = (ic: IconName, label: string, act: string) => `<button class="tile-btn" data-act="${act}">${icon(ic)}<span>${label}</span></button>`;
   // Suggestions replace the lists while the box holds something new.
@@ -103,7 +104,8 @@ export function addView(s: AddScreen): string {
   if (s.tab === 'all') {
     body = s.query
       ? resultsHtml(s)
-      : `<div class="tiles">${tile('scan', 'Scan barcode', 'scan')}${diary ? tile('bolt', 'Quick add', 'quick') : ''}${tile('apple', 'Create food', 'custom')}</div>
+      : `${photo ? '' : `<div class="tiles">${tile('scan', 'Scan barcode', 'scan')}${diary ? tile('camera', 'Photo', 'photo') : ''}${
+        diary ? tile('bolt', 'Quick add', 'quick') : ''}${tile('apple', 'Create food', 'custom')}</div>`}
         <h3 class="list-title">History</h3>${d.recent.length ? listHtml(d.recent, 'recent') : '<p class="empty">Foods you log will show up here.</p>'}`;
   } else if (s.tab === 'meals') {
     body = d.myMeals.length
@@ -119,7 +121,7 @@ export function addView(s: AddScreen): string {
     body = `<button class="wide" data-act="new-recipe">${icon('plus')} Create recipe</button>`
       + (foods.length ? listHtml(foods, 'recipes') : '<p class="empty">Recipes you create will show up here.</p>');
   } else {
-    body = `<button class="wide" data-act="custom">${icon('plus')} Create food</button>`
+    body = (photo ? '' : `<button class="wide" data-act="custom">${icon('plus')} Create food</button>`)
       + (d.myFoods.length ? listHtml(d.myFoods, 'mine') : '<p class="empty">Foods you create will show up here.</p>');
   }
 
@@ -198,8 +200,9 @@ export function nutritionHtml(f: Food, portion: number, showGoals = true): strin
 // The entry being edited: a diary entry, or an ingredient of the recipe.
 function editedItem(s: FoodScreen): MealItem | undefined {
   if (!s.entryId) return undefined;
-  const items = s.target.kind === 'diary' ? peekDay(state.data, state.date)?.foods : s.target.screen.recipe.items;
-  return items?.find((e) => e.id === s.entryId);
+  if (s.target.kind === 'diary') return peekDay(state.data, state.date)?.foods.find((e) => e.id === s.entryId);
+  if (s.target.kind === 'recipe') return s.target.screen.recipe.items.find((e) => e.id === s.entryId);
+  return undefined;
 }
 
 export function foodView(s: FoodScreen): string {
@@ -263,7 +266,20 @@ export async function loadPortions(s: FoodScreen): Promise<void> {
 // Adds an amount of a food to where it is going: a diary meal on the shown day, or the recipe.
 function putFood(target: Target, food: Food, amount: number, unit: Unit): void {
   if (target.kind === 'diary') addFood(state.data, state.date, target.meal, food, amount, unit);
-  else target.screen.recipe.items.push({ id: newId(), food, grams: amount * unit.grams, amount, unit: unit.label });
+  else if (target.kind === 'recipe') target.screen.recipe.items.push({ id: newId(), food, grams: amount * unit.grams, amount, unit: unit.label });
+}
+
+// A food picked for a photo replaces what the AI matched; the user sets the amount back on the photo screen.
+function pickForPhoto(target: Extract<Target, { kind: 'photo' }>, food: Food): void {
+  target.screen.items[target.index].food = food;
+  go(target.screen);
+}
+
+// Opens the search with words already searched, e.g. to replace a food found in a photo.
+export function openSearch(target: Target, back: Screen, query: string): void {
+  const s = addScreen(target, back);
+  go(s);
+  runSearch(s, query);
 }
 
 // ---------- Create food / quick add / scan ----------
@@ -413,13 +429,16 @@ export const handlers: Handlers = {
       const s = state.screen;
       if (s.name !== 'add') return;
       const food = listFoods(s, el.dataset.list!)[Number(el.dataset.i)];
-      if (food) go({ name: 'food', target: s.target, food, back: s });
+      if (!food) return;
+      if (s.target.kind === 'photo') return pickForPhoto(s.target, food);
+      go({ name: 'food', target: s.target, food, back: s });
     },
     'quick-log': (el) => {
       const s = state.screen;
       if (s.name !== 'add') return;
       const food = listFoods(s, el.dataset.list!)[Number(el.dataset.i)];
       if (!food) return;
+      if (s.target.kind === 'photo') return pickForPhoto(s.target, food);
       const { amount, unit } = startingAmount(food);
       putFood(s.target, food, amount, unit);
       state.notice = `Added ${food.name}${s.target.kind === 'diary' ? ` to ${mealName(s.target.meal)}` : ''}.`;

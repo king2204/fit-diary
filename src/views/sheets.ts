@@ -4,6 +4,7 @@ import { esc } from '../html';
 import { copyMeal, day, mealForHour, peekDay, saveMeal, shiftDate, type Meal } from '../store';
 import { dateLabel, icon, mealName, shortDay, type IconName } from '../ui';
 import { addScreen, openScan } from './food';
+import { photoScreen } from './photo';
 
 function tile(ic: IconName, label: string, act: string): string {
   return `<button class="sheet-tile" data-act="${act}"><span class="tile-ic">${icon(ic)}</span>${label}</button>`;
@@ -14,8 +15,9 @@ export function sheetHtml(sheet: Sheet): string {
   const d = state.data;
   if (sheet.kind === 'plus') {
     body = `<div class="sheet-grid">
-      ${tile('search', 'Log food', 'plus-food')}${tile('scan', 'Barcode scan', 'plus-scan')}${tile('bolt', 'Quick add', 'plus-quick')}${tile('drop', 'Water', 'plus-water')}
-      ${tile('scale', 'Weight', 'plus-weight')}${tile('dumbbell', 'Exercise', 'plus-exercise')}${tile('steps', 'Steps', 'plus-steps')}${tile('timer', 'Fasting', 'plus-fasting')}
+      ${tile('search', 'Log food', 'plus-food')}${tile('camera', 'Food photo', 'plus-photo')}${tile('scan', 'Barcode scan', 'plus-scan')}${tile('bolt', 'Quick add', 'plus-quick')}
+      ${tile('drop', 'Water', 'plus-water')}${tile('scale', 'Weight', 'plus-weight')}${tile('dumbbell', 'Exercise', 'plus-exercise')}${tile('steps', 'Steps', 'plus-steps')}
+      ${tile('timer', 'Fasting', 'plus-fasting')}
     </div>`;
   } else if (sheet.kind === 'meal') {
     const empty = !(peekDay(d, state.date)?.foods.some((e) => e.meal === sheet.meal));
@@ -56,6 +58,7 @@ export const handlers: Handlers = {
     'close-sheet': () => openSheet(null),
     'plus-food': () => go(addScreen({ kind: 'diary', meal: plusDay() }, state.screen)),
     'plus-scan': () => openScan({ kind: 'diary', meal: plusDay() }, state.screen),
+    'plus-photo': () => go(photoScreen(plusDay(), state.screen)),
     'plus-quick': () => go({ name: 'quick', meal: plusDay(), back: state.screen }),
     'plus-water': () => {
       plusDay();

@@ -1,5 +1,6 @@
 // App state shared by every screen, plus navigation and saving.
 import { pushDiary } from './cloud';
+import type { PhotoItem } from './photo';
 import { defaultData, isoDate, save, userKey, type Data, type Food, type Meal, type Recipe } from './store';
 
 export type AuthMode = 'signin' | 'signup' | 'reset';
@@ -16,8 +17,14 @@ export interface CardioDef {
 
 export type RecipeScreen = { name: 'recipe'; recipe: Recipe; isNew: boolean; back: Screen };
 
-// Where a chosen food goes: into the diary, or into a recipe being edited.
-export type Target = { kind: 'diary'; meal: Meal } | { kind: 'recipe'; screen: RecipeScreen };
+// A food photo being checked: picking a photo, waiting for the AI, then the foods it found.
+export type PhotoScreen = {
+  name: 'photo'; meal: Meal; step: 'pick' | 'working' | 'done'; preview: string; message: string;
+  items: PhotoItem[]; note: string; used: number; limit: number; back: Screen;
+};
+
+// Where a chosen food goes: into the diary, into a recipe being edited, or in place of one found in a photo.
+export type Target = { kind: 'diary'; meal: Meal } | { kind: 'recipe'; screen: RecipeScreen } | { kind: 'photo'; screen: PhotoScreen; index: number };
 
 export type Screen =
   | { name: 'loading' }
@@ -48,6 +55,7 @@ export type Screen =
   | { name: 'meal'; id: string; back: Screen }
   | { name: 'recipes'; back: Screen }
   | RecipeScreen
+  | PhotoScreen
   | { name: 'myfoods'; back: Screen }
   | { name: 'fasting'; back: Screen };
 

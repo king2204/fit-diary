@@ -1,0 +1,6 @@
+project_id = "hwexhptcjalomrpwlwhy"
+
+# The function checks the user's login itself (auth.getUser), so the gateway check is off.
+# This avoids the gateway rejecting logins signed with Supabase's newer signing keys.
+[functions.food-photo]
+verify_jwt = false

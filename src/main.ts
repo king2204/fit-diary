@@ -14,6 +14,7 @@ import * as goals from './views/goals';
 import * as home from './views/home';
 import * as more from './views/more';
 import * as nutrition from './views/nutrition-view';
+import * as photo from './views/photo';
 import * as progress from './views/progress';
 import * as sheets from './views/sheets';
 
@@ -45,6 +46,7 @@ function view(s: Screen): string {
     case 'recipe': return more.recipeView(s);
     case 'myfoods': return more.myFoodsView(s);
     case 'fasting': return fasting.fastingView(s);
+    case 'photo': return photo.photoView(s);
   }
 }
 
@@ -142,7 +144,7 @@ const core: Handlers = {
 
 // Every module's handlers in one table per event type. A name used twice is a bug, so it fails loudly.
 const all = [core, auth.handlers, home.handlers, diary.handlers, food.handlers, exercise.handlers, progress.handlers,
-  nutrition.handlers, goals.handlers, more.handlers, fasting.handlers, sheets.handlers];
+  nutrition.handlers, goals.handlers, more.handlers, fasting.handlers, sheets.handlers, photo.handlers];
 function merge<K extends keyof Handlers>(kind: K): NonNullable<Handlers[K]> {
   const out: Record<string, unknown> = {};
   for (const h of all) {

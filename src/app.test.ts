@@ -4,6 +4,7 @@ import { parseOffProduct, parseUsdaFood, parseUsdaPortions } from './foods';
 import { parseBasicFoods, searchBasicList } from './basicfoods';
 import { diaryCsv } from './csv';
 import { esc } from './html';
+import { matchPhotoFoods } from './photo';
 import { localMatches, matches, rankFoods, suggestSearches } from './suggest';
 import { autoFiber, autoSugar, bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, microGoals, scale } from './nutrition';
 import {
@@ -152,6 +153,19 @@ describe('built-in food list', () => {
     const ids = (r: { best: Food[]; rest: Food[] }) => [...r.best, ...r.rest].map((f) => f.id);
     // Pinned first; then the food with both words; then salmon (rare) before foods that are only "frozen" (common).
     expect(ids(searchBasicList(list, 'salmon frozen'))).toEqual(['usda:3', 'usda:4', 'usda:5', 'usda:1', 'usda:2', 'usda:6']);
+  });
+
+  it('matches foods the photo AI saw, by name or else by Thai name', () => {
+    const list = parseBasicFoods({ keys, best: { 'khao man gai': ['th:khao-man-gai'] }, foods: [
+      ['th:khao-man-gai', 'Khao man gai (ข้าวมันไก่), Thai chicken rice', [164, 8, 18, 6, 1, 0.3, 180, null, null, null], [['1 plate', 386]]],
+      row(2, 'Egg, whole, cooked, fried'),
+    ] });
+    const ai = (name: string, thai_name: string, grams: number) => ({ name, thai_name, grams, portion: '1 plate', confidence: 'high' as const });
+    const items = matchPhotoFoods({ foods: [ai('khao man gai', 'ข้าวมันไก่', 379.6), ai('hainanese rice', 'ข้าวมันไก่', 300), ai('mystery sauce', '', 0.2)],
+      note: '', used: 1, limit: 30 }, list);
+    expect(items.map((it) => [it.food?.id ?? null, it.grams, it.on])).toEqual([
+      ['th:khao-man-gai', 380, true], ['th:khao-man-gai', 300, true], [null, 1, true],
+    ]);
   });
 
   it('keeps Thai dish ids and their estimate notes', () => {
