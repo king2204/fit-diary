@@ -23,8 +23,9 @@ const KEYS = [
 ];
 // Not useful in an adult diary.
 const SKIP_CATEGORIES = new Set(['Baby Foods']);
-// FNDDS categories left out: baby foods, and plain foods SR Legacy already has.
-const SKIP_SURVEY = /^(Baby |Formula|Human milk|Apples|Bananas|Blueberries|Citrus fruits|Grapes|Melons|Pears|Peaches|Pineapple|Strawberries|Mango and papaya|Dried fruits|Nuts and seeds|Beans, peas, legumes|Tap water|Bottled water|Enhanced water|Sugars and honey|Sugar substitutes|Butter and animal fats|Margarine|Not included)/;
+// FNDDS categories left out: baby foods, and plain foods SR Legacy already has. Berries stay in for "Berries, frozen"
+// (mixed frozen berries), which SR Legacy doesn't have.
+const SKIP_SURVEY = /^(Baby |Formula|Human milk|Apples|Bananas|Citrus fruits|Grapes|Melons|Pears|Peaches|Pineapple|Strawberries|Mango and papaya|Dried fruits|Nuts and seeds|Beans, peas, legumes|Tap water|Bottled water|Enhanced water|Sugars and honey|Sugar substitutes|Butter and animal fats|Margarine|Not included)/;
 // USDA adds this to some names; it means nothing to the user.
 const NOTE = " (Includes foods for USDA's Food Distribution Program)";
 
@@ -187,10 +188,12 @@ const BEST = {
   'cha yen': ['th:cha-yen'],
   'thai iced coffee': ['th:kafae-yen'],
 };
-// Frozen fruit, as sold in big packs.
-const FROZEN_BERRIES = ['Blueberries, frozen, unsweetened', 'Strawberries, frozen, unsweetened', 'Raspberries, frozen, red, unsweetened',
-  'Blackberries, frozen, unsweetened'];
-for (const q of ['frozen berries', 'frozen berry', 'frozen mixed berries', 'mixed berries', 'frozen fruit']) BEST[q] = FROZEN_BERRIES;
+// Frozen fruit, as sold in big packs. "Berries, frozen" is USDA's mixed frozen berries.
+const FROZEN_BERRIES = ['Berries, frozen', 'Blueberries, frozen, unsweetened', 'Strawberries, frozen, unsweetened',
+  'Raspberries, frozen, red, unsweetened', 'Blackberries, frozen, unsweetened'];
+for (const q of ['frozen berries', 'frozen berry', 'frozen fruit', 'mixed berries', 'mixed berry', 'mix berry', 'mix berries', 'mixberry',
+  'mixberries', 'frozen mixed berries', 'frozen mix berry', 'frozen mixberry', 'มิกซ์เบอร์รี่', 'มิกซ์เบอรี่', 'เบอร์รี่รวม', 'เบอร์รี่แช่แข็ง',
+  'เบอร์รี่']) BEST[q] = FROZEN_BERRIES;
 BEST.berries = ['Blueberries, raw', 'Strawberries, raw', 'Raspberries, raw'];
 BEST['frozen blueberries'] = ['Blueberries, frozen, unsweetened'];
 BEST['frozen strawberries'] = ['Strawberries, frozen, unsweetened'];

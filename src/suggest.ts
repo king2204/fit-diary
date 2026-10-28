@@ -46,7 +46,7 @@ export const COMMON_FOODS = [
   'boat noodles', 'congee', 'bbq pork', 'dim sum', 'bibimbap', 'kimchi', 'miso soup', 'pho', 'banh mi', 'laksa', 'nasi lemak',
   'jok', 'khao kha moo', 'kai jeow', 'thai omelette', 'yam woon sen', 'pad pak boong', 'cha yen', 'thai iced coffee', 'tteokbokki',
   // Fast food
-  'kfc', 'chicken roll', 'chicken wrap', 'wingz zabb', 'pop chicken', 'bonchon', 'korean fried chicken', 'chicken nuggets', 'chicken tenders',
+  'mixed berries', 'kfc', 'chicken roll', 'chicken wrap', 'wingz zabb', 'pop chicken', 'bonchon', 'korean fried chicken', 'chicken nuggets', 'chicken tenders',
   // Oils and sauces
   'coconut oil', 'olive oil', 'vegetable oil', 'mayonnaise', 'ketchup', 'soy sauce', 'fish sauce', 'oyster sauce', 'sriracha',
   'hummus', 'salsa', 'ranch dressing', 'mustard',
