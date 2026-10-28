@@ -327,7 +327,8 @@ async function startScanning(s: ScanScreen): Promise<void> {
       s.status = `Found ${code}. Looking it up…`;
       render();
       try {
-        const food = await lookupBarcode(code, state.data.usdaKey);
+        // A food the user created from this barcode's label comes first, then the databases.
+        const food = state.data.myFoods.find((f) => f.id === `my:${code}`) ?? await lookupBarcode(code, state.data.usdaKey);
         if (state.screen !== s) return;
         if (food) go({ name: 'food', target: s.target, food, back: s.back });
         else {

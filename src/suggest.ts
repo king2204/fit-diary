@@ -55,8 +55,8 @@ export const COMMON_FOODS = [
 // Thai marks (vowel signs, tone marks) are part of words, so \p{M} stays in.
 const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean);
 
-// "  Chicken   BREAST " -> "chicken breast", to look searches up.
-export const normalize = (query: string) => words(query).join(' ');
+// "  Salmon   FROZEN " -> "frozen salmon": the same key in any word order, to look searches up.
+export const normalize = (query: string) => words(query).sort().join(' ');
 
 // Words a search can leave out: "n" in "Chick n' Roll", "and", "with".
 const SMALL_WORDS = new Set(['n', 'a', 'and', 'with', 'the', 'of', 'in', 'or']);
@@ -74,7 +74,16 @@ export function matches(text: string, query: string): boolean {
   const ws = words(text);
   const lower = text.toLowerCase();
   const typed = searchWords(query);
-  return typed.length > 0 && typed.every((t) => ws.some((w) => w.startsWith(t)) || (/[^\u0000-ɏ]/.test(t) && lower.includes(t)));
+  return typed.length > 0 && typed.every((t) => ws.some((w) => wordMatches(t, w)) || (/[^\u0000-ɏ]/.test(t) && lower.includes(t)));
+}
+
+// "berry" -> "berries", "cherry" -> "cherries".
+const plural = (t: string) => (/[^aeiou]y$/.test(t) ? `${t.slice(0, -1)}ies` : `${t}s`);
+
+// A typed word matches a word that starts with it ("chick" -> "chicken") or with its plural ("berry" -> "berries").
+// Typed words of 4+ letters also match the end of a joined word: "berry" -> "blueberries", "fish" -> "catfish".
+function wordMatches(t: string, w: string): boolean {
+  return w.startsWith(t) || w.startsWith(plural(t)) || (t.length >= 4 && (w.endsWith(t) || w.endsWith(plural(t))));
 }
 
 export interface Suggestion {
@@ -115,29 +124,36 @@ export function localMatches(query: string, foods: Food[], limit = 5): Food[] {
 function wordHit(typed: string, ws: string[]): number {
   let hit = 0;
   for (const w of ws) {
-    if (w === typed || w === `${typed}s` || w === `${typed}es` || `${w}s` === typed) return 1;
-    if (w.startsWith(typed)) hit = 0.5;
+    if (w === typed || w === plural(typed) || w === `${typed}es` || plural(w) === typed) return 1;
+    if (wordMatches(typed, w)) hit = 0.5;
   }
   return hit;
 }
 
 const PLAIN = /\b(raw|cooked|roasted|boiled|baked|steamed|grilled|fresh|brewed|whole)\b/;
 const PROCESSED = new RegExp('\\b(deli|breaded|prepackaged|imitation|flavou?r|flavored|substitute|mix|candies|snacks|formulated|fast foods'
-  + '|restaurant|dried|dehydrated|powder|canned|frozen|cured|alaska native)\\b');
+  + '|restaurant|dried|dehydrated|powder|canned|frozen|cured|alaska native)\\b', 'g');
 
-// Best match first. Words in the first part of a name ("Rice, white, ...") count most; plain raw or cooked foods
-// come before processed ones; brand products (a brand, or a BRAND in capitals inside the name) and long names
-// come later. Equal scores keep the databases' own order.
+// Best match first. Foods with every typed word come first; words in the first part of a name ("Rice, white, ...")
+// count most; plain raw or cooked foods come before processed ones (unless the user typed "frozen", "canned", ...);
+// brand products (a brand, or a BRAND in capitals inside the name) and long names come later. Equal scores keep
+// the databases' own order.
 export function rankFoods(query: string, foods: Food[]): Food[] {
   const typed = searchWords(query);
+  // Rarer words say more about what the user wants ("salmon" more than "frozen"), so they weigh more.
+  const weight = typed.map((t) => 1 / Math.max(1, foods.filter((f) => words(f.name).some((w) => wordMatches(t, w))).length));
+  const totalWeight = weight.reduce((a, b) => a + b, 0) || 1;
   const score = (f: Food) => {
     const name = f.name.toLowerCase();
     const parts = name.split(',').map(words);
-    const hit = (ws: string[]) => typed.reduce((sum, t) => sum + wordHit(t, ws), 0) / Math.max(typed.length, 1);
+    const hits = (ws: string[]) => typed.map((t) => wordHit(t, ws));
+    const average = (hs: number[]) => hs.reduce((sum, h, i) => sum + h * weight[i], 0) / totalWeight;
+    const all = hits(parts.flat());
     const firstIsQuery = parts[0].length > 0 && parts[0].every((w) => typed.some((t) => wordHit(t, [w]) === 1));
+    const processed = (name.match(PROCESSED) ?? []).some((w) => !typed.includes(w));
     const brand = !!f.brand || /\b[A-Z]{4,}\b/.test(f.name);
-    return hit(parts.flat()) * 2 + hit(parts.slice(0, 2).flat()) * 2 + (firstIsQuery ? 2 : 0) + (PLAIN.test(name) ? 1 : 0)
-      - (PROCESSED.test(name) ? 1.5 : 0) - (brand ? 2 : 0) - name.length / 80;
+    return (all.every((h) => h > 0) ? 3 : 0) + average(all) * 2 + average(hits(parts.slice(0, 2).flat())) * 2 + (firstIsQuery ? 2 : 0)
+      + (PLAIN.test(name) ? 1 : 0) - (processed ? 1.5 : 0) - (brand ? 2 : 0) - name.length / 80;
   };
   return foods.map((f, i) => ({ f, i, s: score(f) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.f);
 }

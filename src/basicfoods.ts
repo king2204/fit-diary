@@ -35,7 +35,7 @@ export function parseBasicFoods(file: BasicFoodsFile): BasicFoods {
     };
   });
   const byId = new Map(foods.map((f) => [f.id, f]));
-  const best = new Map(Object.entries(file.best ?? {}).map(([q, ids]) => [q, ids
+  const best = new Map(Object.entries(file.best ?? {}).map(([q, ids]) => [normalize(q), ids
     .map((id) => byId.get(typeof id === 'number' ? `usda:${id}` : id)).filter((f): f is Food => !!f)]));
   return { foods, best };
 }

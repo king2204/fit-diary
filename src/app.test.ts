@@ -144,13 +144,23 @@ describe('built-in food list', () => {
     });
   });
 
+  it('finds pinned matches in any word order and lets rare words lead', () => {
+    const list = parseBasicFoods({ keys, best: { 'frozen salmon': [3] }, foods: [
+      row(1, 'Durian, raw or frozen'), row(2, 'Peas, green, frozen'), row(3, 'Fish, salmon, Atlantic, farmed, raw'),
+      row(4, 'Salmon nuggets, breaded, frozen, heated'), row(5, 'Fish, salmon, grilled'), row(6, 'Corn, sweet, frozen'),
+    ] });
+    const ids = (r: { best: Food[]; rest: Food[] }) => [...r.best, ...r.rest].map((f) => f.id);
+    // Pinned first; then the food with both words; then salmon (rare) before foods that are only "frozen" (common).
+    expect(ids(searchBasicList(list, 'salmon frozen'))).toEqual(['usda:3', 'usda:4', 'usda:5', 'usda:1', 'usda:2', 'usda:6']);
+  });
+
   it('keeps Thai dish ids and their estimate notes', () => {
     const { foods: [dish], best } = parseBasicFoods({
       keys, best: { 'khao man gai': ['th:khao-man-gai'] },
       foods: [['th:khao-man-gai', 'Khao man gai (ข้าวมันไก่)', [164, 8.3, 18.4, 6, 1, 0.3, 180, null, null, null], [['1 plate', 386]], 'Estimate from USDA ingredients: rice 220 g']],
     });
     expect(dish).toMatchObject({ id: 'th:khao-man-gai', note: 'Estimate from USDA ingredients: rice 220 g', portions: [{ label: '1 plate', grams: 386 }] });
-    expect(best.get('khao man gai')).toEqual([dish]);
+    expect(searchBasicList({ foods: [dish], best }, 'Khao Man Gai').best).toEqual([dish]);
     expect(searchBasicList({ foods: [dish], best }, 'ข้าวมันไก่').rest).toEqual([dish]); // Thai search
   });
 
@@ -163,6 +173,7 @@ describe('built-in food list', () => {
     expect(ids(searchBasicList(list, ' MILK '))).toEqual(['usda:2', 'usda:1', 'usda:3']);
     expect(ids(searchBasicList(list, 'egg'))).toEqual(['usda:5', 'usda:4']); // the word itself before "eggplant"
     expect(ids(searchBasicList(list, 'salmon'))).toEqual(['usda:7', 'usda:6']);
+    expect(ids(searchBasicList(list, 'MILK'))[0]).toBe('usda:2'); // pinned, any case
     // Nothing has all the words: foods with at least half of them follow ("salmonberries" has only one).
     expect(ids(searchBasicList(list, 'salmon fish oats'))).toEqual(['usda:7']);
     expect(ids(searchBasicList(list, 'rolled salmon'))).toEqual(['usda:7', 'usda:6']);
@@ -179,6 +190,11 @@ describe('search suggestions', () => {
     expect(matches('Banana', ' ')).toBe(false);
     expect(matches("KFC Chick n' Roll (ชิคแอนด์โรล), fried chicken wrap", "KFC Chick n' Roll")).toBe(true); // "n" is ignored
     expect(matches('Macaroni and cheese', 'mac n cheese')).toBe(true);
+    // Plurals and joined words: "berry" finds "blueberries", "fish" finds "catfish".
+    expect(matches('Blueberries, frozen, unsweetened', 'frozen berry')).toBe(true);
+    expect(matches('Strawberries, raw', 'strawberry')).toBe(true);
+    expect(matches('Fish, catfish, channel, wild, raw', 'catfish')).toBe(true);
+    expect(matches('Catfish, breaded and fried', 'fish')).toBe(true);
   });
 
   it('suggests past searches first, then common foods that start with the text', () => {

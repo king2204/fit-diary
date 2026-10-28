@@ -187,6 +187,14 @@ const BEST = {
   'cha yen': ['th:cha-yen'],
   'thai iced coffee': ['th:kafae-yen'],
 };
+// Frozen fruit, as sold in big packs.
+const FROZEN_BERRIES = ['Blueberries, frozen, unsweetened', 'Strawberries, frozen, unsweetened', 'Raspberries, frozen, red, unsweetened',
+  'Blackberries, frozen, unsweetened'];
+for (const q of ['frozen berries', 'frozen berry', 'frozen mixed berries', 'mixed berries', 'frozen fruit']) BEST[q] = FROZEN_BERRIES;
+BEST.berries = ['Blueberries, raw', 'Strawberries, raw', 'Raspberries, raw'];
+BEST['frozen blueberries'] = ['Blueberries, frozen, unsweetened'];
+BEST['frozen strawberries'] = ['Strawberries, frozen, unsweetened'];
+BEST['frozen salmon'] = BEST.salmon;
 // KFC Thailand items, in the spellings people type.
 for (const q of ['wing zab', 'wing zabb', 'wingz zab', 'wingz zabb', 'wingzabb', 'wings zabb', 'kfc wing zab', 'kfc wingz zabb', 'kfc wings',
   'kfc wing', 'วิงซ์แซ่บ', 'วิงแซ่บ']) BEST[q] = [ZABB, ...KFC_WINGS];
