@@ -8,24 +8,31 @@ import type { Scan } from '../scanner';
 import {
   MEALS, addFood, day, goalsFor, itemsTotals, logItems, newId, peekDay, recipeFood, unitsFor, type Food, type MealItem, type Meal, type Unit,
 } from '../store';
-import { amount, grams, header, icon, kcal, mealName, meter, numField, option } from '../ui';
+import { localMatches, suggestSearches } from '../suggest';
+import { amount, grams, header, icon, kcal, mealName, meter, numField, option, type IconName } from '../ui';
 
 type AddScreen = Extract<Screen, { name: 'add' }>;
 type FoodScreen = Extract<Screen, { name: 'food' }>;
 type ScanScreen = Extract<Screen, { name: 'scan' }>;
 
 export function addScreen(target: Target, back: Screen): AddScreen {
-  return { name: 'add', target, tab: 'all', query: '', results: [], loading: false, problems: [], back };
+  return { name: 'add', target, tab: 'all', back, live: '', query: '', results: [], problems: [], loading: false, page: 1, more: false, loadingMore: false };
 }
 
 // ---------- Add food: search and lists ----------
 
+const recipeFoods = () => state.data.recipes.map(recipeFood).filter((f): f is Food => f !== null);
+
 // The foods behind each list on the Add food screen, so a tapped row can be found again.
+// "-q" lists are the user's own foods matching what is typed (or was last searched).
 function listFoods(s: AddScreen, list: string): Food[] {
+  const q = s.live.trim() || s.query;
   if (list === 'results') return s.results;
   if (list === 'recent') return state.data.recent;
   if (list === 'mine') return state.data.myFoods;
-  return state.data.recipes.map(recipeFood).filter((f): f is Food => f !== null);
+  if (list === 'recent-q') return localMatches(q, state.data.recent);
+  if (list === 'mine-q') return localMatches(q, [...state.data.myFoods, ...(s.target.kind === 'diary' ? recipeFoods() : [])]);
+  return recipeFoods();
 }
 
 function servingText(f: Food): string {
@@ -40,7 +47,42 @@ function foodRow(f: Food, list: string, i: number): string {
     <button class="add-circle" data-act="quick-log" data-list="${list}" data-i="${i}" aria-label="Add ${esc(f.name)}">${icon('plus')}</button></li>`;
 }
 
-const listHtml = (foods: Food[], list: string) => `<section class="card flush"><ul class="list">${foods.map((f, i) => foodRow(f, list, i)).join('')}</ul></section>`;
+const listHtml = (foods: Food[], list: string, from = 0) =>
+  `<section class="card flush"><ul class="list">${foods.map((f, i) => foodRow(f, list, from + i)).join('')}</ul></section>`;
+
+// While typing: search for exactly this, suggested searches, and the user's own foods that match. No network.
+function liveHtml(s: AddScreen): string {
+  const q = s.live.trim();
+  const row = (text: string, ic: IconName) => {
+    const label = text.toLowerCase().startsWith(q.toLowerCase()) ? `${esc(text.slice(0, q.length))}<b>${esc(text.slice(q.length))}</b>` : esc(text);
+    return `<li><button data-act="run-search" data-q="${esc(text)}">${icon(ic)}<span class="name">${label}</span></button></li>`;
+  };
+  const recent = listFoods(s, 'recent-q');
+  const mine = listFoods(s, 'mine-q');
+  return `<section class="card flush"><ul class="list suggest">
+      <li><button data-act="run-search" data-q="${esc(q)}">${icon('search')}<span class="name">Search for “<b>${esc(q)}</b>”</span></button></li>
+      ${suggestSearches(q, state.data.searches).map((x) => row(x.text, x.past ? 'clock' : 'search')).join('')}
+    </ul></section>
+    ${recent.length ? `<h3 class="list-title">Recently logged</h3>${listHtml(recent, 'recent-q')}` : ''}
+    ${mine.length ? `<h3 class="list-title">My foods</h3>${listHtml(mine, 'mine-q')}` : ''}`;
+}
+
+// After a search: the user's own matches, then the best three results, then the rest.
+function resultsHtml(s: AddScreen): string {
+  if (s.loading) return '<p class="empty">Searching…</p>';
+  const recent = listFoods(s, 'recent-q').slice(0, 3);
+  const mine = listFoods(s, 'mine-q').slice(0, 3);
+  return `${s.problems.map((p) => `<p class="notice">${esc(p)}</p>`).join('')}
+    ${recent.length ? `<h3 class="list-title">Recently logged</h3>${listHtml(recent, 'recent-q')}` : ''}
+    ${mine.length ? `<h3 class="list-title">My foods</h3>${listHtml(mine, 'mine-q')}` : ''}
+    ${s.results.length
+      ? `<h3 class="list-title">Best match</h3>${listHtml(s.results.slice(0, 3), 'results')}
+        ${s.results.length > 3 ? `<h3 class="list-title">More results</h3>${listHtml(s.results.slice(3), 'results', 3)}` : ''}`
+      : `<p class="empty">No foods found for “${esc(s.query)}”. Try other words.</p>`}
+    ${s.more ? `<button class="wide" data-act="more-results" ${s.loadingMore ? 'disabled' : ''}>${s.loadingMore ? 'Loading…' : 'Show more results'}</button>` : ''}
+    <p class="muted center">Can’t find it? <button class="link inline" data-act="custom">Create food</button> or
+      <button class="link inline" data-act="scan">scan the barcode</button>.</p>`;
+}
 
 export function addView(s: AddScreen): string {
   const d = state.data;
@@ -49,20 +91,16 @@ export function addView(s: AddScreen): string {
     ? `<select class="title-select" data-act="target-meal" aria-label="Meal">${MEALS.map((m) => option(m, mealName(m), diary.meal)).join('')}</select>`
     : '<h1>Add ingredient</h1>';
   const tab = (t: FoodTab, label: string) => `<button data-act="add-tab" data-tab="${t}" class="${s.tab === t ? 'on' : ''}">${label}</button>`;
-  const tile = (ic: Parameters<typeof icon>[0], label: string, act: string) => `<button class="tile-btn" data-act="${act}">${icon(ic)}<span>${label}</span></button>`;
+  const tile = (ic: IconName, label: string, act: string) => `<button class="tile-btn" data-act="${act}">${icon(ic)}<span>${label}</span></button>`;
+  // Suggestions replace the lists while the box holds something new.
+  const typing = s.live.trim() !== '' && s.live.trim() !== s.query;
 
   let body = '';
   if (s.tab === 'all') {
-    body = `<div class="tiles">${tile('scan', 'Scan barcode', 'scan')}${diary ? tile('bolt', 'Quick add', 'quick') : ''}${tile('apple', 'Create food', 'custom')}</div>
-      ${s.problems.map((p) => `<p class="notice">${esc(p)}</p>`).join('')}`;
-    if (s.loading) body += '<p class="empty">Searching…</p>';
-    else if (s.query) {
-      body += `<h3 class="list-title">Results for “${esc(s.query)}”</h3>`
-        + (s.results.length ? listHtml(s.results, 'results') : '<p class="empty">No foods found. Try other words, scan the barcode, or create the food.</p>');
-    } else {
-      body += '<h3 class="list-title">History</h3>'
-        + (d.recent.length ? listHtml(d.recent, 'recent') : '<p class="empty">Foods you log will show up here.</p>');
-    }
+    body = s.query
+      ? resultsHtml(s)
+      : `<div class="tiles">${tile('scan', 'Scan barcode', 'scan')}${diary ? tile('bolt', 'Quick add', 'quick') : ''}${tile('apple', 'Create food', 'custom')}</div>
+        <h3 class="list-title">History</h3>${d.recent.length ? listHtml(d.recent, 'recent') : '<p class="empty">Foods you log will show up here.</p>'}`;
   } else if (s.tab === 'meals') {
     body = d.myMeals.length
       ? `<section class="card flush"><ul class="list">${d.myMeals.map((m) => {
@@ -84,11 +122,14 @@ export function addView(s: AddScreen): string {
   return `<header class="bar"><button class="icon" data-act="back" aria-label="Back">${icon('back')}</button>${title}<span class="bar-gap"></span></header>
     <main>
       <form class="search" data-form="search" role="search">
-        <span class="search-box">${icon('search')}<input name="q" type="search" placeholder="Search for a food" value="${esc(s.query)}" enterkeyhint="search" autocomplete="off" aria-label="Search for a food"></span>
+        <span class="search-box">${icon('search')}<input name="q" type="search" placeholder="Search for a food" value="${esc(s.live)}" enterkeyhint="search" autocomplete="off" aria-label="Search for a food"></span>
         <button class="primary">Search</button>
       </form>
-      <div class="seg">${tab('all', 'All')}${diary ? `${tab('meals', 'My meals')}${tab('recipes', 'Recipes')}` : ''}${tab('mine', 'My foods')}</div>
-      ${body}
+      <div id="search-live" class="stack" ${typing ? '' : 'hidden'}>${typing ? liveHtml(s) : ''}</div>
+      <div id="add-body" class="stack" ${typing ? 'hidden' : ''}>
+        <div class="seg">${tab('all', 'All')}${diary ? `${tab('meals', 'My meals')}${tab('recipes', 'Recipes')}` : ''}${tab('mine', 'My foods')}</div>
+        ${body}
+      </div>
     </main>`;
 }
 
@@ -303,16 +344,39 @@ async function startScanning(s: ScanScreen): Promise<void> {
 }
 
 async function runSearch(s: AddScreen, query: string): Promise<void> {
-  Object.assign(s, { query, tab: 'all', loading: true, results: [], problems: [] });
+  const q = query.trim();
+  if (!q) return;
+  Object.assign(s, { live: q, query: q, tab: 'all', loading: true, results: [], problems: [], page: 1, more: false });
+  // Remembered for suggestions next time.
+  state.data.searches = [q, ...state.data.searches.filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 20);
+  store();
   render();
   try {
-    const r = await searchFoods(query, state.data.usdaKey);
-    Object.assign(s, { results: r.foods, problems: r.problems });
+    const r = await searchFoods(q, state.data.usdaKey);
+    if (s.query !== q) return; // a newer search started
+    Object.assign(s, { results: r.foods, problems: r.problems, more: r.more });
   } catch (e) {
     s.problems = ['Search failed. Check your internet connection.'];
     console.error(e);
   }
   s.loading = false;
+  if (state.screen === s) render();
+}
+
+async function loadMore(s: AddScreen): Promise<void> {
+  const q = s.query;
+  s.loadingMore = true;
+  render();
+  try {
+    const r = await searchFoods(q, state.data.usdaKey, s.page + 1);
+    if (s.query !== q) return;
+    const have = new Set(s.results.map((f) => f.id));
+    Object.assign(s, { results: [...s.results, ...r.foods.filter((f) => !have.has(f.id))], problems: r.problems, more: r.more, page: s.page + 1 });
+  } catch (e) {
+    s.problems = ['Could not load more results. Check your internet connection.'];
+    console.error(e);
+  }
+  s.loadingMore = false;
   if (state.screen === s) render();
 }
 
@@ -324,6 +388,14 @@ export const handlers: Handlers = {
       if (state.screen.name !== 'add') return;
       state.screen.tab = el.dataset.tab as FoodTab;
       render();
+    },
+    'run-search': (el) => {
+      const s = state.screen;
+      if (s.name === 'add' && el.dataset.q) runSearch(s, el.dataset.q);
+    },
+    'more-results': () => {
+      const s = state.screen;
+      if (s.name === 'add' && s.more && !s.loadingMore) loadMore(s);
     },
     pick: (el) => {
       const s = state.screen;
@@ -382,6 +454,24 @@ export const handlers: Handlers = {
     },
   },
   inputs: {
+    // Suggestions as the user types; the lists come back when the box is cleared.
+    search: (_form, input) => {
+      const s = state.screen;
+      if (s.name !== 'add' || input.name !== 'q') return;
+      s.live = input.value;
+      const q = s.live.trim();
+      if (!q && s.query) {
+        Object.assign(s, { query: '', results: [], problems: [], more: false });
+        render();
+        document.querySelector<HTMLInputElement>('input[name=q]')?.focus();
+        return;
+      }
+      const typing = q !== '' && q !== s.query;
+      const live = document.getElementById('search-live')!;
+      live.hidden = !typing;
+      document.getElementById('add-body')!.hidden = typing;
+      live.innerHTML = typing ? liveHtml(s) : '';
+    },
     food: (form) => {
       const s = state.screen;
       if (s.name !== 'food') return;

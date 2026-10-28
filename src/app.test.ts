@@ -3,6 +3,7 @@ import { barChart, donut, lineChart, ring } from './charts';
 import { parseOffProduct, parseUsdaFood, parseUsdaPortions } from './foods';
 import { diaryCsv } from './csv';
 import { esc } from './html';
+import { localMatches, matches, rankFoods, suggestSearches } from './suggest';
 import { autoFiber, autoSugar, bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, microGoals, scale } from './nutrition';
 import {
   addFood, copyMeal, day, defaultData, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, microTotals, parseData, projection, recipeFood,
@@ -122,6 +123,41 @@ describe('vitamins and minerals', () => {
     expect(microGoals('female', 30, 2000)).toMatchObject({ iron: 18, calcium: 1000, vitA: 700, vitC: 75 });
     expect(microGoals('female', 55, 2000)).toMatchObject({ iron: 8, calcium: 1200, vitB6: 1.5 });
     expect(microGoals('male', 75, 2000)).toMatchObject({ calcium: 1200, vitD: 20, vitB6: 1.7, transFat: null });
+  });
+});
+
+describe('search suggestions', () => {
+  it('matches the start of words, and anywhere for Thai', () => {
+    expect(matches('Oat milk', 'oat mi')).toBe(true);
+    expect(matches('Goat cheese', 'oat')).toBe(false);
+    expect(matches('Cereals, oats, regular', 'OATS')).toBe(true);
+    expect(matches('ข้าวมันไก่', 'ข้าว')).toBe(true);
+    expect(matches('ข้าวมันไก่', 'มันไก่')).toBe(true);
+    expect(matches('Banana', ' ')).toBe(false);
+  });
+
+  it('suggests past searches first, then common foods that start with the text', () => {
+    expect(suggestSearches('oat', ['oat milk latte', 'banana'])).toEqual([
+      { text: 'oat milk latte', past: true },
+      { text: 'oats', past: false }, { text: 'oatmeal', past: false }, { text: 'oat bran', past: false },
+      { text: 'oat milk', past: false }, { text: 'rolled oats', past: false },
+    ]);
+    expect(suggestSearches('oats', []).map((x) => x.text)).not.toContain('oats'); // that one is "Search for"
+    expect(suggestSearches('  ', ['x'])).toEqual([]);
+  });
+
+  it('finds the user’s own foods without repeats', () => {
+    const oats: Food = { ...apple, id: 'usda:9', name: 'Oats, rolled' };
+    expect(localMatches('oat', [oats, apple, oats])).toEqual([oats]);
+    expect(localMatches('', [oats])).toEqual([]);
+  });
+
+  it('puts the best match first', () => {
+    const f = (id: string, name: string, brand?: string): Food => ({ ...apple, id, name, brand });
+    const ranked = rankFoods('oats', [
+      f('1', 'Oat milk', 'Oatly'), f('2', 'Cereals, oats, regular and quick, not fortified, dry'), f('3', 'OATS', 'Quaker'), f('4', 'Oats, rolled'),
+    ]).map((x) => x.id);
+    expect(ranked).toEqual(['4', '3', '2', '1']);
   });
 });
 

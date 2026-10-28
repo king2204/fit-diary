@@ -132,6 +132,7 @@ export interface Data {
   mealNames: Record<Meal, string>;
   fasts: Fast[]; // newest first
   goalNoticeDismissed: string | null; // date of the weigh-in when "goal reached" was dismissed
+  searches: string[]; // past food searches, newest first
   usdaKey: string;
 }
 
@@ -160,6 +161,7 @@ export function defaultData(): Data {
     mealNames: { ...DEFAULT_MEAL_NAMES },
     fasts: [],
     goalNoticeDismissed: null,
+    searches: [],
     usdaKey: '',
   };
 }

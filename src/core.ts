@@ -27,7 +27,13 @@ export type Screen =
   | { name: 'diary' }
   | { name: 'progress' }
   | { name: 'more' }
-  | { name: 'add'; target: Target; tab: FoodTab; query: string; results: Food[]; loading: boolean; problems: string[]; back: Screen }
+  | {
+    name: 'add'; target: Target; tab: FoodTab; back: Screen;
+    live: string; // what is typed in the search box right now
+    query: string; // what was last searched
+    results: Food[]; problems: string[]; loading: boolean;
+    page: number; more: boolean; loadingMore: boolean;
+  }
   | { name: 'food'; target: Target; food: Food; entryId?: string; back: Screen }
   | { name: 'custom'; target?: Target; barcode?: string; edit?: Food; back: Screen }
   | { name: 'quick'; meal: Meal; back: Screen }

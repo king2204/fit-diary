@@ -73,6 +73,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -260,6 +261,11 @@ textarea {
 .menu li > button .ic:first-child { color: var(--accent); }
 .list li > button.danger, .menu li > button.danger .ic:first-child { color: var(--danger); }
 .list-title { margin: 4px 4px -4px; font-size: 13px; font-weight: 650; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.suggest li > button { min-height: 46px; }
+.suggest li > button .ic { width: 20px; height: 20px; color: var(--muted); }
+.suggest .name { display: block; }
+.suggest b { font-weight: 700; }
+.link.inline { padding: 0; font-size: inherit; }
 
 /* Buttons and forms */
 button, .button {

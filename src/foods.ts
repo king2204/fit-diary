@@ -1,6 +1,7 @@
 // Food search and barcode lookup using Open Food Facts and USDA FoodData Central.
 import { zero, type Micro, type Micros, type Nutrients } from './nutrition';
 import type { Food, Unit } from './store';
+import { rankFoods } from './suggest';
 
 const OFF = 'https://world.openfoodfacts.org';
 const OFF_FIELDS = 'code,product_name,product_name_en,brands,serving_size,serving_quantity,nutriments';
@@ -158,35 +159,34 @@ async function getJson(url: string): Promise<unknown> {
   return res.json();
 }
 
-async function searchOff(query: string): Promise<Food[]> {
-  const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`;
+async function searchOff(query: string, page: number): Promise<Food[]> {
+  const url = `${OFF}/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&page=${page}&fields=${OFF_FIELDS}`;
   const data = (await getJson(url)) as { products?: OffProduct[] };
   return (data.products ?? []).map((p) => parseOffProduct(p)).filter((f): f is Food => f !== null);
 }
 
-async function searchUsda(query: string, key: string, dataTypes = 'Foundation,SR Legacy,Branded'): Promise<UsdaFood[]> {
-  const url = `${USDA}?api_key=${encodeURIComponent(key || 'DEMO_KEY')}&query=${encodeURIComponent(query)}&dataType=${encodeURIComponent(dataTypes)}&pageSize=25`;
-  const data = (await getJson(url)) as { foods?: UsdaFood[] };
-  return data.foods ?? [];
+async function searchUsda(query: string, key: string, dataTypes = 'Foundation,SR Legacy,Branded', page = 1): Promise<{ foods?: UsdaFood[]; totalPages?: number }> {
+  const url = `${USDA}?api_key=${encodeURIComponent(key || 'DEMO_KEY')}&query=${encodeURIComponent(query)}&dataType=${encodeURIComponent(dataTypes)}&pageSize=25&pageNumber=${page}`;
+  return (await getJson(url)) as { foods?: UsdaFood[]; totalPages?: number };
 }
 
 export interface SearchResult {
-  foods: Food[];
+  foods: Food[]; // best match first
   problems: string[]; // shown to the user when a source fails
+  more: boolean; // another page of results exists
 }
 
-export async function searchFoods(query: string, usdaKey: string): Promise<SearchResult> {
-  const [usda, off] = await Promise.allSettled([searchUsda(query, usdaKey), searchOff(query)]);
+export async function searchFoods(query: string, usdaKey: string, page = 1): Promise<SearchResult> {
+  const [usda, off] = await Promise.allSettled([searchUsda(query, usdaKey, undefined, page), searchOff(query, page)]);
   const foods: Food[] = [];
   const problems: string[] = [];
-  if (usda.status === 'fulfilled') foods.push(...usda.value.map(parseUsdaFood).filter((f): f is Food => f !== null));
+  if (usda.status === 'fulfilled') foods.push(...(usda.value.foods ?? []).map(parseUsdaFood).filter((f): f is Food => f !== null));
   else problems.push(usda.reason instanceof RateLimitError
     ? 'USDA search limit reached. Add your free USDA key in Settings for more searches.'
     : 'USDA search is not available right now.');
   if (off.status === 'fulfilled') foods.push(...off.value);
-  // Plain foods ("Bananas, raw") before brand products; the order within each group is kept.
-  foods.sort((a, b) => Number(!!a.brand) - Number(!!b.brand));
-  return { foods, problems };
+  const more = usda.status === 'fulfilled' && (usda.value.totalPages ?? 1) > page;
+  return { foods: rankFoods(query, foods), problems, more };
 }
 
 // Open Food Facts first (worldwide products), then USDA branded foods by UPC.
@@ -201,6 +201,6 @@ export async function lookupBarcode(code: string, usdaKey: string): Promise<Food
     if (!(e instanceof Error) || !e.message.startsWith('HTTP 404')) console.warn('Open Food Facts lookup failed', e);
   }
   const digits = code.replace(/^0+/, '');
-  const matches = (await searchUsda(code, usdaKey, 'Branded')).filter((f) => f.gtinUpc?.replace(/^0+/, '') === digits);
+  const matches = ((await searchUsda(code, usdaKey, 'Branded')).foods ?? []).filter((f) => f.gtinUpc?.replace(/^0+/, '') === digits);
   return matches.length ? parseUsdaFood(matches[0]) : null;
 }
