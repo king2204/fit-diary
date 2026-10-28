@@ -1,12 +1,16 @@
 // Food photo -> the foods in it and about how much of each, using Claude's vision.
 // Called by the app for a signed-in user. The Anthropic API key stays here as the secret ANTHROPIC_API_KEY.
-// Optional secrets: FOOD_PHOTO_MODEL (default claude-opus-5-5), FOOD_PHOTO_DAILY_LIMIT (default 30 photos per person).
+// Optional secrets: FOOD_PHOTO_MODEL (default claude-haiku-5-5, the low-cost model the owner chose; claude-opus-5-5 is
+// more accurate and costs about 40x more), FOOD_PHOTO_DAILY_LIMIT (default 30 photos per person).
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { betaJSONSchemaOutputFormat } from 'npm:@anthropic-ai/sdk@1.3.0/helpers/beta/json-schema';
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.117.3/cors';
 
-const MODEL = Deno.env.get('FOOD_PHOTO_MODEL') || 'claude-opus-5-5';
+const MODEL = Deno.env.get('FOOD_PHOTO_MODEL') || 'claude-haiku-5-5';
+// If a safety check declines a request, Anthropic can retry it on its recommended fallback model. Haiku has no
+// fallback model, so the option is only sent for the others.
+const FALLBACK = MODEL.startsWith('claude-haiku') ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const };
 const DAILY_LIMIT = Number(Deno.env.get('FOOD_PHOTO_DAILY_LIMIT') || 30);
 const MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 // The app sends a JPEG of at most 1,024 px; this leaves room without letting huge uploads through.
@@ -84,9 +88,7 @@ Deno.serve(async (req) => {
       max_tokens: 16000,
       // Identifying food is a quick task: low effort keeps it fast and cheap.
       output_config: { effort: 'low', format: betaJSONSchemaOutputFormat(SCHEMA) },
-      // If a safety check declines the request, Anthropic retries it on its recommended fallback model.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...FALLBACK,
       system: SYSTEM,
       messages: [{
         role: 'user',
