@@ -2,9 +2,11 @@
 import { barChart, donut } from '../charts';
 import { render, state, type Handlers, type NutritionTab, type Screen } from '../core';
 import { esc } from '../html';
-import { NUTRIENT_KEYS, add, macroPct, scale, zero, type Nutrients } from '../nutrition';
-import { MEALS, exerciseTotal, foodTotals, goalsFor, peekDay, shiftDate, type DayLog } from '../store';
-import { dateLabel, grams, header, icon, kcal, mealName, meter, shortDay } from '../ui';
+import {
+  MICROS, MICRO_KEYS, NUTRIENT_KEYS, add, addMicros, macroPct, scale, zero, type Micro, type Micros, type Nutrients,
+} from '../nutrition';
+import { MEALS, exerciseTotal, foodTotals, goalsFor, microTotals, peekDay, shiftDate, type DayLog } from '../store';
+import { amount, dateLabel, grams, header, icon, kcal, mealName, meter, shortDay } from '../ui';
 
 type NutritionScreen = Extract<Screen, { name: 'nutrition' }>;
 
@@ -14,11 +16,16 @@ function divide(n: Nutrients, by: number): Nutrients {
   return out;
 }
 
-const ROWS: [keyof Nutrients, string, string][] = [
-  ['kcal', 'Calories', 'kcal'], ['carbs', 'Carbs', 'g'], ['fiber', 'Fiber', 'g'], ['sugar', 'Sugar', 'g'],
-  ['fat', 'Fat', 'g'], ['protein', 'Protein', 'g'], ['sodium', 'Sodium', 'mg'],
-];
-const fmt = (k: keyof Nutrients, v: number) => (k === 'kcal' || k === 'sodium' ? kcal(v) : grams(v));
+function divideMicros(m: Micros, by: number): Micros {
+  const out: Micros = {};
+  for (const k of MICRO_KEYS) if (m[k] !== undefined) out[k] = m[k]! / by;
+  return out;
+}
+
+const VITAMINS: Micro[] = ['vitA', 'vitC', 'vitD', 'vitB1', 'vitB2', 'vitB3', 'vitB6', 'vitB9', 'vitB12', 'calcium', 'iron'];
+
+// One row: value and goal in `unit`. Over a `limit` goal shows in red; a missing value shows as –.
+type Row = [label: string, value: number | undefined, unit: string, goal: number | null | undefined, limit: boolean];
 
 export function nutritionView(s: NutritionScreen): string {
   const d = state.data;
@@ -50,13 +57,32 @@ export function nutritionView(s: NutritionScreen): string {
         ${goals ? `<tr><td>Goal</td><td>${kcal(goals.kcal)}</td></tr>` : ''}
       </tbody></table></section>`;
   } else if (s.tab === 'nutrients') {
+    const m = divideMicros(logs.reduce((t, l) => addMicros(t, microTotals(l.foods)), {} as Micros), logs.length);
+    const g = goals?.micros;
+    const main: Row[] = [
+      ['Calories', n.kcal, 'kcal', goals?.kcal, true], ['Carbs', n.carbs, 'g', goals?.carbs, false], ['Fiber', n.fiber, 'g', goals?.fiber, false],
+      ['Sugar', n.sugar, 'g', goals?.sugar, true], ['Fat', n.fat, 'g', goals?.fat, false], ['Saturated fat', m.satFat, 'g', g?.satFat, true],
+      ['Trans fat', m.transFat, 'g', null, true], ['Cholesterol', m.cholesterol, 'mg', g?.cholesterol, true],
+      ['Protein', n.protein, 'g', goals?.protein, false], ['Sodium', n.sodium, 'mg', goals?.sodium, true],
+      ['Potassium', m.potassium, 'mg', g?.potassium, false],
+    ];
+    const show = (v: number | undefined, unit: string) => (v === undefined ? '–' : `${amount(v)} ${unit}`);
     body = `<section class="card"><table class="nutrients"><thead><tr><th></th><th>${word}</th><th>Goal</th><th>Left</th></tr></thead><tbody>
-      ${ROWS.map(([k, label, unit]) => {
-        const g = goals?.[k];
-        const left = g !== undefined ? g - n[k] : undefined;
-        return `<tr><td>${label}</td><td>${fmt(k, n[k])} ${unit}</td><td>${g !== undefined ? `${fmt(k, g)} ${unit}` : '–'}</td>
-          <td class="${left !== undefined && left < 0 ? 'over' : ''}">${left !== undefined ? fmt(k, left) : '–'}</td></tr>`;
-      }).join('')}</tbody></table></section>`;
+      ${main.map(([label, v, unit, goal, limit]) => {
+        const left = goal != null && v !== undefined ? goal - v : undefined;
+        return `<tr><td>${label}</td><td>${show(v, unit)}</td><td>${goal != null ? show(goal, unit) : '–'}</td>
+          <td class="${limit && left !== undefined && left < 0 ? 'over' : ''}">${left !== undefined ? amount(left) : '–'}</td></tr>`;
+      }).join('')}</tbody></table>
+      <h3 class="table-title">Vitamins and minerals</h3>
+      <table class="nutrients"><thead><tr><th></th><th>${word}</th><th>Goal</th><th>%</th></tr></thead><tbody>
+      ${VITAMINS.map((k) => {
+        const v = m[k];
+        const goal = g?.[k];
+        return `<tr><td>${MICROS[k].label}</td><td>${show(v, MICROS[k].unit)}</td><td>${goal != null ? show(goal, MICROS[k].unit) : '–'}</td>
+          <td>${goal && v !== undefined ? `${Math.round((v / goal) * 100)}%` : '–'}</td></tr>`;
+      }).join('')}</tbody></table>
+      <p class="muted">Only foods that list a nutrient count toward it, and many brand products list just a few. Goals are for adults, by your sex and age.</p>
+    </section>`;
   } else {
     const pct = macroPct(n);
     const row = (k: 'carbs' | 'protein' | 'fat', label: string, goalPct: number) =>

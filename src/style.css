@@ -342,6 +342,17 @@ th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; font-size: 13px; }
 td.over { color: var(--danger); }
 .facts td:first-child { color: var(--text-2); }
+.facts tr.indent td:first-child { padding-left: 18px; }
+.nutrients { font-size: 14px; }
+.nutrients td:not(:first-child), .nutrients th { white-space: nowrap; }
+.facts td:nth-child(3), .facts th:nth-child(3) { width: 74px; }
+.more-nutrients summary { color: var(--accent); font-weight: 650; padding: 4px 0; }
+.more-nutrients .row2 { margin-top: 10px; align-items: end; }
+h3.table-title { margin: 16px 0 4px; font-size: 15px; }
+.goal-list { list-style: none; margin: 10px 0; padding: 0; font-size: 14px; }
+.goal-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.goal-list li span { color: var(--text-2); }
+.goal-list b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Camera */
 .camera { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 3 / 4; }

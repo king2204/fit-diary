@@ -5,6 +5,12 @@ import { shiftDate, type Meal } from './store';
 
 export const kcal = (n: number) => Math.round(n).toLocaleString();
 export const grams = (n: number) => (n < 10 ? String(Math.round(n * 10) / 10) : String(Math.round(n)));
+// Nutrient amounts from 1,050 down to 0.12: more decimals for small vitamin amounts.
+export function amount(n: number): string {
+  const a = Math.abs(n);
+  const s = a >= 100 ? kcal(a) : a >= 10 ? String(Math.round(a)) : a >= 1 ? String(Math.round(a * 10) / 10) : String(Math.round(a * 100) / 100);
+  return n < 0 && s !== '0' ? `-${s}` : s;
+}
 // Body weight and measurements keep one decimal: 76.4 kg.
 export const dec1 = (n: number) => String(Math.round(n * 10) / 10);
 export const mealName = (m: Meal) => state.data.mealNames[m];

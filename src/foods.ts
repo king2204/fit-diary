@@ -1,5 +1,5 @@
 // Food search and barcode lookup using Open Food Facts and USDA FoodData Central.
-import { zero, type Nutrients } from './nutrition';
+import { zero, type Micro, type Micros, type Nutrients } from './nutrition';
 import type { Food, Unit } from './store';
 
 const OFF = 'https://world.openfoodfacts.org';
@@ -24,6 +24,14 @@ const num = (v: unknown): number | undefined => {
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 };
 
+// Open Food Facts gives these in grams per 100 g; the factor converts to the unit the app shows (mg or mcg).
+const OFF_MICROS: [Micro, string, number][] = [
+  ['satFat', 'saturated-fat', 1], ['transFat', 'trans-fat', 1], ['cholesterol', 'cholesterol', 1e3], ['potassium', 'potassium', 1e3],
+  ['calcium', 'calcium', 1e3], ['iron', 'iron', 1e3], ['vitA', 'vitamin-a', 1e6], ['vitC', 'vitamin-c', 1e3], ['vitD', 'vitamin-d', 1e6],
+  ['vitB1', 'vitamin-b1', 1e3], ['vitB2', 'vitamin-b2', 1e3], ['vitB3', 'vitamin-pp', 1e3], ['vitB6', 'vitamin-b6', 1e3],
+  ['vitB9', 'vitamin-b9', 1e6], ['vitB12', 'vitamin-b12', 1e6],
+];
+
 export function parseOffProduct(p: OffProduct, code = p.code): Food | null {
   const name = (p.product_name || p.product_name_en || '').trim();
   const n = p.nutriments ?? {};
@@ -39,10 +47,15 @@ export function parseOffProduct(p: OffProduct, code = p.code): Food | null {
     fiber: num(n['fiber_100g']) ?? 0,
     sodium: sodiumG * 1000,
   };
+  const micros: Micros = {};
+  for (const [key, field, factor] of OFF_MICROS) {
+    const v = num(n[`${field}_100g`]);
+    if (v !== undefined) micros[key] = v * factor;
+  }
   const brand = Array.isArray(p.brands) ? p.brands.join(', ') : p.brands;
   const servingGrams = num(p.serving_quantity);
   return {
-    id: `off:${code}`, name, brand: brand || undefined, per100,
+    id: `off:${code}`, name, brand: brand || undefined, per100, micros: Object.keys(micros).length ? micros : undefined,
     servingGrams: servingGrams && servingGrams > 0 ? servingGrams : undefined,
     servingLabel: p.serving_size || undefined,
   };
@@ -60,10 +73,17 @@ type UsdaFood = {
   foodNutrients: { nutrientNumber?: string; value?: number }[];
 };
 
-// USDA nutrient numbers. Energy is 208, or 957/958 (Atwater factors) for some Foundation foods.
+// USDA nutrient numbers. Energy is 208, or 958/957 (Atwater factors) for some Foundation foods.
 const USDA_NUTRIENTS: Record<string, keyof Nutrients> = {
-  '208': 'kcal', '203': 'protein', '205': 'carbs', '204': 'fat', '269': 'sugar', '291': 'fiber', '307': 'sodium',
+  '203': 'protein', '205': 'carbs', '204': 'fat', '269': 'sugar', '291': 'fiber', '307': 'sodium',
 };
+// Each nutrient's numbers in order of preference, with a factor to the app's unit.
+// Vitamin D can come in IU (1 IU = 0.025 mcg). Vitamin A in IU is skipped: converting it depends on the source.
+const USDA_MICROS: [Micro, [string, number][]][] = [
+  ['satFat', [['606', 1]]], ['transFat', [['605', 1]]], ['cholesterol', [['601', 1]]], ['potassium', [['306', 1]]], ['calcium', [['301', 1]]],
+  ['iron', [['303', 1]]], ['vitA', [['320', 1]]], ['vitC', [['401', 1]]], ['vitD', [['328', 1], ['324', 0.025]]], ['vitB1', [['404', 1]]],
+  ['vitB2', [['405', 1]]], ['vitB3', [['406', 1]]], ['vitB6', [['415', 1]]], ['vitB9', [['435', 1], ['417', 1]]], ['vitB12', [['418', 1]]],
+];
 
 // Branded USDA names are ALL CAPS; make them readable.
 function tidy(name: string): string {
@@ -72,21 +92,21 @@ function tidy(name: string): string {
 }
 
 export function parseUsdaFood(f: UsdaFood): Food | null {
-  const per100 = zero();
-  let hasEnergy = false;
-  let atwater: number | undefined;
+  // Brand products can list a nutrient several times (older label versions, values per serving);
+  // the first one is the current value per 100 g.
+  const values = new Map<string, number>();
   for (const n of f.foodNutrients) {
-    const key = n.nutrientNumber && USDA_NUTRIENTS[n.nutrientNumber];
-    if (key && n.value !== undefined) {
-      per100[key] = n.value;
-      if (key === 'kcal') hasEnergy = true;
-    } else if ((n.nutrientNumber === '958' || n.nutrientNumber === '957') && n.value !== undefined) {
-      atwater ??= n.value;
-    }
+    if (n.nutrientNumber && n.value !== undefined && !values.has(n.nutrientNumber)) values.set(n.nutrientNumber, n.value);
   }
-  if (!hasEnergy) {
-    if (atwater === undefined) return null;
-    per100.kcal = atwater;
+  const kcal = values.get('208') ?? values.get('958') ?? values.get('957');
+  if (kcal === undefined) return null;
+  const per100 = zero();
+  per100.kcal = kcal;
+  for (const [number, key] of Object.entries(USDA_NUTRIENTS)) per100[key] = values.get(number) ?? 0;
+  const micros: Micros = {};
+  for (const [key, sources] of USDA_MICROS) {
+    const found = sources.find(([number]) => values.has(number));
+    if (found) micros[key] = values.get(found[0])! * found[1];
   }
   const unit = f.servingSizeUnit?.toLowerCase();
   const servingGrams = f.servingSize && (unit === 'g' || unit === 'grm' || unit === 'ml' || unit === 'mlt') ? f.servingSize : undefined;
@@ -95,6 +115,7 @@ export function parseUsdaFood(f: UsdaFood): Food | null {
     name: tidy(f.description),
     brand: f.brandName || f.brandOwner ? tidy(f.brandName || f.brandOwner!) : undefined,
     per100,
+    micros: Object.keys(micros).length ? micros : undefined,
     servingGrams,
     servingLabel: f.householdServingFullText || undefined,
   };

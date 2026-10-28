@@ -3,9 +3,9 @@ import { barChart, donut, lineChart, ring } from './charts';
 import { parseOffProduct, parseUsdaFood, parseUsdaPortions } from './foods';
 import { diaryCsv } from './csv';
 import { esc } from './html';
-import { bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, scale } from './nutrition';
+import { autoFiber, autoSugar, bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, microGoals, scale } from './nutrition';
 import {
-  addFood, copyMeal, day, defaultData, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, parseData, projection, recipeFood,
+  addFood, copyMeal, day, defaultData, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, microTotals, parseData, projection, recipeFood,
   saveMeal, setWeight, shiftDate, streak, unitsFor, weekExercise, weightOn, weightProgress, type Food, type Unit,
 } from './store';
 
@@ -79,6 +79,52 @@ describe('food databases', () => {
   });
 });
 
+describe('vitamins and minerals', () => {
+  it('reads them from USDA, taking the first value when a brand product lists one twice', () => {
+    const f = parseUsdaFood({
+      fdcId: 9, description: 'CHEERIOS', brandOwner: 'General Mills',
+      foodNutrients: [
+        { nutrientNumber: '208', value: 359 }, { nutrientNumber: '307', value: 487 }, { nutrientNumber: '401', value: 90 },
+        { nutrientNumber: '324', value: 200 }, { nutrientNumber: '318', value: 3750 }, { nutrientNumber: '417', value: 500 },
+        { nutrientNumber: '208', value: 117 }, { nutrientNumber: '307', value: 154 }, { nutrientNumber: '401', value: 3.7 },
+      ],
+    })!;
+    expect(f.per100).toMatchObject({ kcal: 359, sodium: 487 });
+    expect(f.micros).toEqual({ vitC: 90, vitD: 5, vitB9: 500 }); // 200 IU = 5 mcg; vitamin A in IU is left out
+    const raw = parseUsdaFood({ fdcId: 10, description: 'Orange', foodNutrients: [
+      { nutrientNumber: '208', value: 47 }, { nutrientNumber: '417', value: 30 }, { nutrientNumber: '435', value: 28 }, { nutrientNumber: '320', value: 11 },
+    ] })!;
+    expect(raw.micros).toEqual({ vitB9: 28, vitA: 11 }); // folate as DFE when given
+    expect(parseUsdaFood({ fdcId: 11, description: 'X', foodNutrients: [{ nutrientNumber: '208', value: 10 }] })!.micros).toBeUndefined();
+  });
+
+  it('reads them from Open Food Facts, converting grams to mg and mcg', () => {
+    const f = parseOffProduct({ code: '5000159407236', product_name: 'Mars', nutriments: {
+      'energy-kcal_100g': 449, calcium_100g: 0.158, 'vitamin-a_100g': 4.9e-5, 'saturated-fat_100g': 8.5, 'vitamin-pp_100g': 0.0037,
+    } })!;
+    expect(f.micros!.calcium).toBeCloseTo(158);
+    expect(f.micros!.vitA).toBeCloseTo(49);
+    expect(f.micros!.vitB3).toBeCloseTo(3.7);
+    expect(f.micros!.satFat).toBe(8.5);
+  });
+
+  it('adds them up per portion, and only for foods that list them', () => {
+    const orange: Food = { ...apple, id: 'usda:3', micros: { vitC: 50, calcium: 40 } };
+    const t = microTotals([{ food: orange, grams: 200 }, { food: apple, grams: 100 }]);
+    expect(t).toEqual({ vitC: 100, calcium: 80 });
+    expect(microTotals(undefined)).toEqual({});
+    const r = recipeFood({ id: 'r', name: 'Fruit', servings: 1, items: [{ id: 'a', food: orange, grams: 100 }, { id: 'b', food: apple, grams: 100 }] })!;
+    expect(r.micros).toEqual({ vitC: 25, calcium: 20 }); // per 100 g of the whole dish
+  });
+
+  it('sets goals by sex and age', () => {
+    expect(microGoals('male', 30, 2000)).toMatchObject({ satFat: 22, potassium: 3400, iron: 8, calcium: 1000, vitA: 900, vitC: 90, vitB6: 1.3, vitD: 15, vitB12: 2.4 });
+    expect(microGoals('female', 30, 2000)).toMatchObject({ iron: 18, calcium: 1000, vitA: 700, vitC: 75 });
+    expect(microGoals('female', 55, 2000)).toMatchObject({ iron: 8, calcium: 1200, vitB6: 1.5 });
+    expect(microGoals('male', 75, 2000)).toMatchObject({ calcium: 1200, vitD: 20, vitB6: 1.7, transFat: null });
+  });
+});
+
 describe('units', () => {
   it('reads USDA household portions', () => {
     expect(parseUsdaPortions([
@@ -124,7 +170,11 @@ describe('diary storage', () => {
     expect(weightOn(d, '2026-10-26')).toBe(68.5);
     expect(weightOn(d, '2026-10-01')).toBe(70);
     d.goals.kcalOverride = 1800;
-    expect(goalsFor(d, '2026-10-26')).toMatchObject({ kcal: 1800, carbs: 225, protein: 90, fat: 60, waterMl: 2000 });
+    // Sugar 10% of calories, fiber 14 g per 1,000 kcal, sodium 2,300 mg, unless set by hand.
+    expect(goalsFor(d, '2026-10-26')).toMatchObject({ kcal: 1800, carbs: 225, protein: 90, fat: 60, waterMl: 2000, sugar: 45, fiber: 25, sodium: 2300 });
+    d.goals.sugarG = 30;
+    expect(goalsFor(d, '2026-10-26')!.sugar).toBe(30);
+    expect([autoSugar(2231), autoFiber(2231)]).toEqual([56, 31]);
   });
 
   it('round-trips a backup and rejects other files', () => {
@@ -229,6 +279,9 @@ describe('meals and recipes', () => {
     const old = { version: 1, profile: { sex: 'male' }, goals: { carbsPct: 40 }, days: {}, weights: [], myFoods: [], recent: [], usdaKey: '', mealNames: { snacks: 'Snack' } };
     const d = parseData(JSON.stringify(old));
     expect(d.goals).toMatchObject({ carbsPct: 40, goalWeightKg: null, steps: 10000 });
+    // Sugar, fiber and sodium goals left at the old fixed defaults become calculated; changed ones stay.
+    const fixed = parseData(JSON.stringify({ ...old, goals: { sugarG: 50, fiberG: 25, sodiumMg: 2300 } }));
+    expect(fixed.goals).toMatchObject({ sugarG: null, fiberG: 25, sodiumMg: null });
     expect(d.mealNames).toEqual({ breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snacks: 'Snack' });
     expect(d).toMatchObject({ myMeals: [], recipes: [], fasts: [], measurements: {} });
   });

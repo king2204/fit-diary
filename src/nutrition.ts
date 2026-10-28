@@ -29,6 +29,45 @@ export function scale(per100: Nutrients, grams: number): Nutrients {
   return out;
 }
 
+// Fats, vitamins and minerals beyond the main seven. Databases often leave some out, so each is optional.
+export const MICRO_KEYS = [
+  'satFat', 'transFat', 'cholesterol', 'potassium', 'calcium', 'iron',
+  'vitA', 'vitC', 'vitD', 'vitB1', 'vitB2', 'vitB3', 'vitB6', 'vitB9', 'vitB12',
+] as const;
+export type Micro = (typeof MICRO_KEYS)[number];
+export type Micros = Partial<Record<Micro, number>>;
+
+// `limit`: a most-per-day goal (less is better). The rest are amounts to reach.
+export const MICROS: Record<Micro, { label: string; unit: string; limit?: boolean }> = {
+  satFat: { label: 'Saturated fat', unit: 'g', limit: true },
+  transFat: { label: 'Trans fat', unit: 'g', limit: true },
+  cholesterol: { label: 'Cholesterol', unit: 'mg', limit: true },
+  potassium: { label: 'Potassium', unit: 'mg' },
+  calcium: { label: 'Calcium', unit: 'mg' },
+  iron: { label: 'Iron', unit: 'mg' },
+  vitA: { label: 'Vitamin A', unit: 'mcg' },
+  vitC: { label: 'Vitamin C', unit: 'mg' },
+  vitD: { label: 'Vitamin D', unit: 'mcg' },
+  vitB1: { label: 'Vitamin B1 (thiamin)', unit: 'mg' },
+  vitB2: { label: 'Vitamin B2 (riboflavin)', unit: 'mg' },
+  vitB3: { label: 'Vitamin B3 (niacin)', unit: 'mg' },
+  vitB6: { label: 'Vitamin B6', unit: 'mg' },
+  vitB9: { label: 'Folate (B9)', unit: 'mcg' },
+  vitB12: { label: 'Vitamin B12', unit: 'mcg' },
+};
+
+export function scaleMicros(per100: Micros | undefined, grams: number): Micros {
+  const out: Micros = {};
+  for (const k of MICRO_KEYS) if (per100?.[k] !== undefined) out[k] = (per100[k]! * grams) / 100;
+  return out;
+}
+
+export function addMicros(a: Micros, b: Micros): Micros {
+  const out: Micros = { ...a };
+  for (const k of MICRO_KEYS) if (b[k] !== undefined) out[k] = (out[k] ?? 0) + b[k]!;
+  return out;
+}
+
 export type Sex = 'male' | 'female';
 export type Activity = 'sedentary' | 'light' | 'moderate' | 'very';
 
@@ -72,6 +111,37 @@ export function calorieGoal(p: Profile, weightKg: number, year: number): number 
 // "If every day were like today": the weight after five weeks of this day's net calories.
 export function fiveWeekWeight(weightKg: number, maintenance: number, netKcal: number): number {
   return weightKg + ((netKcal - maintenance) * 35) / KCAL_PER_KG;
+}
+
+// Sugar: under 10% of calories (WHO). Food labels give total sugar, including fruit and milk sugar, so this is a guide.
+export const autoSugar = (kcal: number) => Math.round((kcal * 0.1) / 4);
+// Fiber: 14 g per 1,000 kcal (Dietary Guidelines for Americans).
+export const autoFiber = (kcal: number) => Math.round((kcal / 1000) * 14);
+// Sodium: under 2,300 mg a day.
+export const AUTO_SODIUM = 2300;
+
+// Daily goals for adults: saturated fat under 10% of calories; vitamins and minerals from the
+// US National Institutes of Health recommended amounts by sex and age. Pregnancy and breastfeeding need more.
+export function microGoals(sex: Sex, age: number, kcal: number): Record<Micro, number | null> {
+  const male = sex === 'male';
+  const over50 = age >= 51;
+  return {
+    satFat: Math.round((kcal * 0.1) / 9),
+    transFat: null, // as little as possible
+    cholesterol: 300,
+    potassium: male ? 3400 : 2600,
+    calcium: age >= 71 || (!male && over50) ? 1200 : 1000,
+    iron: male || over50 ? 8 : 18,
+    vitA: male ? 900 : 700,
+    vitC: male ? 90 : 75,
+    vitD: age > 70 ? 20 : 15,
+    vitB1: male ? 1.2 : 1.1,
+    vitB2: male ? 1.3 : 1.1,
+    vitB3: male ? 16 : 14,
+    vitB6: over50 ? (male ? 1.7 : 1.5) : 1.3,
+    vitB9: 400,
+    vitB12: 2.4,
+  };
 }
 
 export interface MacroSplit {

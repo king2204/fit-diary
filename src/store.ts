@@ -1,5 +1,6 @@
 import {
-  NUTRIENT_KEYS, add, calorieGoal, fiveWeekWeight, macroGrams, maintenanceKcal, scale, zero, type MacroSplit, type Nutrients, type Profile,
+  AUTO_SODIUM, MICRO_KEYS, NUTRIENT_KEYS, add, addMicros, autoFiber, autoSugar, calorieGoal, fiveWeekWeight, macroGrams, maintenanceKcal,
+  microGoals, scale, scaleMicros, zero, type MacroSplit, type Micro, type Micros, type Nutrients, type Profile,
 } from './nutrition';
 
 export interface Food {
@@ -7,6 +8,7 @@ export interface Food {
   name: string;
   brand?: string;
   per100: Nutrients; // per 100 g (or ml)
+  micros?: Micros; // per 100 g; only what the database lists
   servingGrams?: number;
   servingLabel?: string;
   portions?: Unit[]; // household measures (1 medium, 1 cup...); [] once looked up and none exist
@@ -67,9 +69,9 @@ export interface DayLog {
 
 export interface Goals extends MacroSplit {
   kcalOverride: number | null; // null = use the calculated goal
-  sugarG: number;
-  fiberG: number;
-  sodiumMg: number;
+  sugarG: number | null; // null = calculated from the calorie goal
+  fiberG: number | null;
+  sodiumMg: number | null;
   waterMl: number;
   goalWeightKg: number | null;
   steps: number;
@@ -144,7 +146,7 @@ export function defaultData(): Data {
     version: 1,
     profile: { sex: 'female', birthYear: 1995, heightCm: 165, activity: 'light', weeklyChangeKg: -0.5 },
     goals: {
-      kcalOverride: null, carbsPct: 50, proteinPct: 20, fatPct: 30, sugarG: 50, fiberG: 30, sodiumMg: 2300, waterMl: 2000,
+      kcalOverride: null, carbsPct: 50, proteinPct: 20, fatPct: 30, sugarG: null, fiberG: null, sodiumMg: null, waterMl: 2000,
       goalWeightKg: null, steps: 10000, workoutsPerWeek: 3, minutesPerWorkout: 30,
     },
     days: {},
@@ -181,9 +183,12 @@ export function parseData(json: string): Data {
   const d = JSON.parse(json) as Partial<Data>;
   if (d.version !== 1) throw new Error('This is not a Fit Diary backup.');
   const base = defaultData();
-  return {
-    ...base, ...d, profile: { ...base.profile, ...d.profile }, goals: { ...base.goals, ...d.goals }, mealNames: { ...base.mealNames, ...d.mealNames },
-  } as Data;
+  const goals = { ...base.goals, ...d.goals };
+  // These used to be fixed at 50 g, 30 g and 2,300 mg. Unchanged ones become calculated.
+  if (goals.sugarG === 50) goals.sugarG = null;
+  if (goals.fiberG === 30) goals.fiberG = null;
+  if (goals.sodiumMg === 2300) goals.sodiumMg = null;
+  return { ...base, ...d, profile: { ...base.profile, ...d.profile }, goals, mealNames: { ...base.mealNames, ...d.mealNames } } as Data;
 }
 
 export function newId(): string {
@@ -229,6 +234,11 @@ export function itemsTotals(items: MealItem[]): Nutrients {
   return items.reduce((t, it) => add(t, scale(it.food.per100, it.grams)), zero());
 }
 
+// Vitamins, minerals and extra fats in these foods; foods that don't list a nutrient add nothing to it.
+export function microTotals(items: { food: Food; grams: number }[] | undefined): Micros {
+  return (items ?? []).reduce((t, it) => addMicros(t, scaleMicros(it.food.micros, it.grams)), {} as Micros);
+}
+
 // A recipe as one food: values per 100 g of the whole dish, and one serving = total weight / servings.
 export function recipeFood(r: Recipe): Food | null {
   const totalGrams = r.items.reduce((sum, it) => sum + it.grams, 0);
@@ -236,7 +246,12 @@ export function recipeFood(r: Recipe): Food | null {
   const total = itemsTotals(r.items);
   const per100 = zero();
   for (const k of NUTRIENT_KEYS) per100[k] = (total[k] * 100) / totalGrams;
-  return { id: `recipe:${r.id}`, name: r.name, per100, servingGrams: totalGrams / r.servings };
+  const microSum = microTotals(r.items);
+  const micros: Micros = {};
+  for (const k of MICRO_KEYS) if (microSum[k] !== undefined) micros[k] = (microSum[k]! * 100) / totalGrams;
+  return {
+    id: `recipe:${r.id}`, name: r.name, per100, micros: Object.keys(micros).length ? micros : undefined, servingGrams: totalGrams / r.servings,
+  };
 }
 
 export function foodTotals(log: DayLog | undefined, meal?: Meal): Nutrients {
@@ -336,6 +351,7 @@ export function mealForHour(hour: number): Meal {
 
 export interface DailyGoals extends Nutrients {
   waterMl: number;
+  micros: Record<Micro, number | null>;
 }
 
 export function goalsFor(d: Data, date: string): DailyGoals | null {
@@ -345,9 +361,10 @@ export function goalsFor(d: Data, date: string): DailyGoals | null {
   return {
     kcal,
     ...macroGrams(kcal, d.goals),
-    sugar: d.goals.sugarG,
-    fiber: d.goals.fiberG,
-    sodium: d.goals.sodiumMg,
+    sugar: d.goals.sugarG ?? autoSugar(kcal),
+    fiber: d.goals.fiberG ?? autoFiber(kcal),
+    sodium: d.goals.sodiumMg ?? AUTO_SODIUM,
+    micros: microGoals(d.profile.sex, Number(date.slice(0, 4)) - d.profile.birthYear, kcal),
     waterMl: d.goals.waterMl,
   };
 }

@@ -1,8 +1,10 @@
 // Goals: about you, weight goal, calorie and macro goals, fitness and water goals — all in one form.
 import { back, state, store, today, type Handlers, type Screen } from '../core';
-import { ACTIVITY_LABELS, calorieGoal, macroGrams, type Activity, type Profile, type Sex } from '../nutrition';
+import {
+  ACTIVITY_LABELS, AUTO_SODIUM, MICROS, MICRO_KEYS, autoFiber, autoSugar, calorieGoal, macroGrams, microGoals, type Activity, type Profile, type Sex,
+} from '../nutrition';
 import { setWeight, weightOn, weightProgress } from '../store';
-import { dec1, header, kcal, numField, option, shortDay } from '../ui';
+import { amount, dec1, header, kcal, numField, option, shortDay } from '../ui';
 
 const WEEKLY_CHANGES: [number, string][] = [
   [-1, 'Lose 1 kg per week'], [-0.75, 'Lose 0.75 kg per week'], [-0.5, 'Lose 0.5 kg per week'], [-0.25, 'Lose 0.25 kg per week'],
@@ -10,6 +12,8 @@ const WEEKLY_CHANGES: [number, string][] = [
 ];
 
 const n = (fd: FormData, k: string) => Number(fd.get(k)) || 0;
+// An optional number: empty means "calculate it for me".
+const optional = (fd: FormData, k: string) => (String(fd.get(k) ?? '').trim() ? n(fd, k) : null);
 
 function profileFrom(fd: FormData): Profile {
   return {
@@ -19,7 +23,16 @@ function profileFrom(fd: FormData): Profile {
 }
 
 // The live summary under the form: calculated calories, macro grams, and time to the goal weight.
-function summary(fd: FormData): { calc: string; macros: string; eta: string } {
+interface Summary {
+  calc: string;
+  macros: string;
+  eta: string;
+  sugar: string; // what an empty sugar/fiber field will use, shown as its placeholder
+  fiber: string;
+  micros: string;
+}
+
+function summary(fd: FormData): Summary {
   const p = profileFrom(fd);
   const kg = n(fd, 'weightKg');
   const goalKg = n(fd, 'goalWeightKg');
@@ -46,7 +59,16 @@ function summary(fd: FormData): { calc: string; macros: string; eta: string } {
       eta = `${dec1(Math.abs(toGo))} kg to go: about ${Math.ceil(weeks)} weeks, around ${end.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}.`;
     }
   }
-  return { calc: calc !== null ? `Calculated for you: <b>${kcal(calc)} kcal</b> a day.` : 'Enter your weight, height and birth year to calculate it.', macros, eta };
+  const age = new Date().getFullYear() - n(fd, 'birthYear');
+  const micros = kcalGoal ? microGoals(p.sex, age, kcalGoal) : null;
+  return {
+    calc: calc !== null ? `Calculated for you: <b>${kcal(calc)} kcal</b> a day.` : 'Enter your weight, height and birth year to calculate it.',
+    macros, eta,
+    sugar: kcalGoal ? String(autoSugar(kcalGoal)) : '',
+    fiber: kcalGoal ? String(autoFiber(kcalGoal)) : '',
+    micros: micros ? MICRO_KEYS.filter((k) => micros[k] !== null).map((k) =>
+      `<li><span>${MICROS[k].label}</span><b>${MICROS[k].limit ? 'under ' : ''}${amount(micros[k]!)} ${MICROS[k].unit}</b></li>`).join('') : '',
+  };
 }
 
 export function goalsView(_s: Extract<Screen, { name: 'goals' }>): string {
@@ -85,7 +107,14 @@ export function goalsView(_s: Extract<Screen, { name: 'goals' }>): string {
         <p class="muted">Macros, % of calories (must add up to 100):</p>
         <div class="row3">${numField('carbsPct', 'Carbs %', true, String(g.carbsPct))}${numField('proteinPct', 'Protein %', true, String(g.proteinPct))}${numField('fatPct', 'Fat %', true, String(g.fatPct))}</div>
         <p class="muted" id="goal-macros">${sum.macros}</p>
-        <div class="row3">${numField('sugarG', 'Sugar (g)', true, String(g.sugarG))}${numField('fiberG', 'Fiber (g)', true, String(g.fiberG))}${numField('sodiumMg', 'Sodium (mg)', true, String(g.sodiumMg))}</div>
+        <div class="row3">${numField('sugarG', 'Sugar (g)', false, g.sugarG !== null ? String(g.sugarG) : '', `placeholder="${sum.sugar}"`)}${
+          numField('fiberG', 'Fiber (g)', false, g.fiberG !== null ? String(g.fiberG) : '', `placeholder="${sum.fiber}"`)}${
+          numField('sodiumMg', 'Sodium (mg)', false, g.sodiumMg !== null ? String(g.sodiumMg) : '', `placeholder="${AUTO_SODIUM}"`)}</div>
+        <p class="muted">Leave these empty and the app works them out (the gray numbers): sugar under 10% of your calories, fiber 14 g per 1,000 kcal, sodium under 2,300 mg.</p>
+        <details class="more-nutrients"><summary>Vitamin, mineral and fat goals</summary>
+          <ul class="goal-list" id="goal-micros">${sum.micros}</ul>
+          <p class="muted">Set for your sex and age (adult amounts from the US National Institutes of Health). Pregnancy and breastfeeding need more — ask a doctor.</p>
+        </details>
       </section>
       <section class="card stack"><h2>Fitness and water</h2>
         <div class="row2">${numField('workoutsPerWeek', 'Workouts per week', true, String(g.workoutsPerWeek), 'step="1"')}${numField('minutesPerWorkout', 'Minutes per workout', true, String(g.minutesPerWorkout), 'step="1"')}</div>
@@ -102,6 +131,9 @@ export const handlers: Handlers = {
       const sum = summary(new FormData(form));
       document.getElementById('goal-calc')!.innerHTML = sum.calc;
       document.getElementById('goal-macros')!.textContent = sum.macros;
+      document.getElementById('goal-micros')!.innerHTML = sum.micros;
+      form.querySelector<HTMLInputElement>('input[name=sugarG]')!.placeholder = sum.sugar;
+      form.querySelector<HTMLInputElement>('input[name=fiberG]')!.placeholder = sum.fiber;
       document.getElementById('goal-eta')!.textContent = sum.eta;
     },
   },
@@ -122,7 +154,7 @@ export const handlers: Handlers = {
         kcalOverride: override ? Number(override) : null,
         goalWeightKg: n(fd, 'goalWeightKg') || null,
         carbsPct: n(fd, 'carbsPct'), proteinPct: n(fd, 'proteinPct'), fatPct: n(fd, 'fatPct'),
-        sugarG: n(fd, 'sugarG'), fiberG: n(fd, 'fiberG'), sodiumMg: n(fd, 'sodiumMg'), waterMl: n(fd, 'waterMl'),
+        sugarG: optional(fd, 'sugarG'), fiberG: optional(fd, 'fiberG'), sodiumMg: optional(fd, 'sodiumMg'), waterMl: n(fd, 'waterMl'),
         steps: n(fd, 'steps'), workoutsPerWeek: n(fd, 'workoutsPerWeek'), minutesPerWorkout: n(fd, 'minutesPerWorkout'),
       };
       state.notice = 'Goals saved.';

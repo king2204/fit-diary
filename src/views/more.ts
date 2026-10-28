@@ -113,7 +113,7 @@ export function recipesView(_s: Extract<Screen, { name: 'recipes' }>): string {
 function recipePreview(r: Recipe): string {
   const f = recipeFood(r);
   if (!f) return '<p class="empty">Add ingredients to see the nutrition per serving.</p>';
-  return `<h3 class="list-title">One serving (${grams(f.servingGrams!)} g)</h3>${nutritionHtml(scale(f.per100, f.servingGrams!), false)}`;
+  return `<h3 class="list-title">One serving (${grams(f.servingGrams!)} g)</h3>${nutritionHtml(f, f.servingGrams!, false)}`;
 }
 
 export function recipeView(s: Extract<Screen, { name: 'recipe' }>): string {

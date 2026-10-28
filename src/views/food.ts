@@ -3,12 +3,12 @@ import { donut } from '../charts';
 import { go, onLeave, persist, render, state, store, type FoodTab, type Handlers, type Screen, type Target } from '../core';
 import { lookupBarcode, searchFoods, usdaPortions } from '../foods';
 import { esc } from '../html';
-import { NUTRIENT_KEYS, macroPct, scale, type Nutrients } from '../nutrition';
+import { MICROS, MICRO_KEYS, NUTRIENT_KEYS, macroPct, scale, scaleMicros, type Micro, type Micros, type Nutrients } from '../nutrition';
 import type { Scan } from '../scanner';
 import {
   MEALS, addFood, day, goalsFor, itemsTotals, logItems, newId, peekDay, recipeFood, unitsFor, type Food, type MealItem, type Meal, type Unit,
 } from '../store';
-import { grams, header, icon, kcal, mealName, meter, numField, option } from '../ui';
+import { amount, grams, header, icon, kcal, mealName, meter, numField, option } from '../ui';
 
 type AddScreen = Extract<Screen, { name: 'add' }>;
 type FoodScreen = Extract<Screen, { name: 'food' }>;
@@ -111,8 +111,12 @@ export function startingAmount(f: Food, entry?: MealItem): { amount: number; uni
   return units[0].label === 'g' ? { amount: 100, unit: units[0] } : { amount: 1, unit: units[0] };
 }
 
-// Calories in the middle, the macro split around it, then % of daily goals and the full label.
-export function nutritionHtml(n: Nutrients, showGoals = true): string {
+const VITAMINS: Micro[] = ['vitA', 'vitC', 'vitD', 'vitB1', 'vitB2', 'vitB3', 'vitB6', 'vitB9', 'vitB12', 'calcium', 'iron'];
+
+// Calories in the middle, the macro split around it, then % of daily goals and the full label, for `grams` of a food.
+export function nutritionHtml(f: Food, portion: number, showGoals = true): string {
+  const n = scale(f.per100, portion);
+  const m = scaleMicros(f.micros, portion);
   const pct = macroPct(n);
   const goals = showGoals ? goalsFor(state.data, state.date) : null;
   const col = (k: 'carbs' | 'protein' | 'fat', label: string) =>
@@ -121,9 +125,14 @@ export function nutritionHtml(n: Nutrients, showGoals = true): string {
     const share = goal > 0 ? Math.round((value / goal) * 100) : 0;
     return `<div class="goal-row"><span>${label}</span>${meter(value, goal, cls, `${label}, % of daily goal`)}<b>${share}%</b></div>`;
   };
-  const facts: [keyof Nutrients, string, string][] = [
-    ['kcal', 'Calories', ''], ['fat', 'Total fat', 'g'], ['carbs', 'Total carbohydrates', 'g'], ['fiber', 'Dietary fiber', 'g'],
-    ['sugar', 'Sugars', 'g'], ['protein', 'Protein', 'g'], ['sodium', 'Sodium', 'mg'],
+  // Label order: fats, sodium and potassium, carbs, protein, then vitamins and minerals. Missing values are left out.
+  const facts: [label: string, value: number | undefined, unit: string, goal: number | null | undefined, sub?: boolean][] = [
+    ['Calories', n.kcal, '', goals?.kcal], ['Total fat', n.fat, 'g', goals?.fat],
+    ['Saturated fat', m.satFat, 'g', goals?.micros.satFat, true], ['Trans fat', m.transFat, 'g', null, true],
+    ['Cholesterol', m.cholesterol, 'mg', goals?.micros.cholesterol], ['Sodium', n.sodium, 'mg', goals?.sodium],
+    ['Potassium', m.potassium, 'mg', goals?.micros.potassium], ['Total carbohydrates', n.carbs, 'g', goals?.carbs],
+    ['Dietary fiber', n.fiber, 'g', goals?.fiber, true], ['Sugars', n.sugar, 'g', goals?.sugar, true], ['Protein', n.protein, 'g', goals?.protein],
+    ...VITAMINS.map((k): [string, number | undefined, string, number | null | undefined] => [MICROS[k].label, m[k], MICROS[k].unit, goals?.micros[k]]),
   ];
   return `<section class="card macro-card">
       ${donut([{ value: n.carbs * 4, cls: 'carbs' }, { value: n.protein * 4, cls: 'protein' }, { value: n.fat * 9, cls: 'fat' }], 104, 10,
@@ -133,9 +142,12 @@ export function nutritionHtml(n: Nutrients, showGoals = true): string {
     ${goals ? `<section class="card"><h2>Percent of your daily goals</h2>
       ${goalRow('Calories', n.kcal, goals.kcal, 'm-kcal')}${goalRow('Carbs', n.carbs, goals.carbs, 'm-carbs')}
       ${goalRow('Protein', n.protein, goals.protein, 'm-protein')}${goalRow('Fat', n.fat, goals.fat, 'm-fat')}</section>` : ''}
-    <section class="card"><h2>Nutrition facts</h2><table class="facts"><tbody>
-      ${facts.map(([k, label, unit]) => `<tr><td>${label}</td><td>${k === 'kcal' || k === 'sodium' ? kcal(n[k]) : grams(n[k])}${unit ? ` ${unit}` : ''}</td></tr>`).join('')}
-    </tbody></table></section>`;
+    <section class="card"><h2>Nutrition facts</h2><table class="facts">
+      ${goals ? '<thead><tr><th></th><th>Amount</th><th>Daily goal</th></tr></thead>' : ''}<tbody>
+      ${facts.filter(([, v]) => v !== undefined).map(([label, v, unit, goal, sub]) => `<tr class="${sub ? 'indent' : ''}"><td>${label}</td>
+        <td>${amount(v!)}${unit ? ` ${unit}` : ''}</td>${goals ? `<td>${goal ? `${Math.round((v! / goal) * 100)}%` : ''}</td>` : ''}</tr>`).join('')}
+    </tbody></table>
+    ${Object.keys(m).length ? '' : '<p class="muted">The database doesn’t list vitamins or minerals for this food.</p>'}</section>`;
 }
 
 // The entry being edited: a diary entry, or an ingredient of the recipe.
@@ -162,7 +174,7 @@ export function foodView(s: FoodScreen): string {
         <label class="field-row"><span>Serving size</span><select name="unit">${unitOptions(f, start.unit.label)}</select></label>
       </form>
     </section>
-    <div id="preview" class="stack">${nutritionHtml(scale(f.per100, start.amount * start.unit.grams), !!diary)}</div>
+    <div id="preview" class="stack">${nutritionHtml(f, start.amount * start.unit.grams, !!diary)}</div>
     <button class="primary wide" form="food-form">${entry ? 'Save' : diary ? 'Add to diary' : 'Add to recipe'}</button>
     ${entry ? `<button class="danger wide" data-act="del-entry">${diary ? 'Delete entry' : 'Remove ingredient'}</button>` : ''}
   </main>`;
@@ -192,7 +204,7 @@ export async function loadPortions(s: FoodScreen): Promise<void> {
   select.innerHTML = unitOptions(s.food, untouched ? portions[0].label : current.label);
   if (untouched) {
     amount.value = '1';
-    document.getElementById('preview')!.innerHTML = nutritionHtml(scale(s.food.per100, portions[0].grams), s.target.kind === 'diary');
+    document.getElementById('preview')!.innerHTML = nutritionHtml(s.food, portions[0].grams, s.target.kind === 'diary');
   }
 }
 
@@ -208,6 +220,7 @@ export function customView(s: Extract<Screen, { name: 'custom' }>): string {
   const f = s.edit;
   const serving = f?.servingGrams ?? 100;
   const per = (k: keyof Nutrients) => (f ? String(Math.round(((f.per100[k] * serving) / 100) * 10) / 10) : '');
+  const perMicro = (k: Micro) => (f?.micros?.[k] !== undefined ? String(Math.round(((f.micros[k]! * serving) / 100) * 100) / 100) : '');
   return `${header(f ? 'Edit food' : 'Create food', { back: true })}<main><section class="card">
     <form data-form="custom" class="stack">
       <label>Name<input name="name" required autocomplete="off" value="${esc(f?.name ?? '')}"></label>
@@ -222,6 +235,9 @@ export function customView(s: Extract<Screen, { name: 'custom' }>): string {
       <div class="row2">${numField('carbs', 'Carbs (g)', false, per('carbs'))}${numField('fat', 'Fat (g)', false, per('fat'))}</div>
       <div class="row2">${numField('sugar', 'Sugar (g)', false, per('sugar'))}${numField('fiber', 'Fiber (g)', false, per('fiber'))}</div>
       ${numField('sodium', 'Sodium (mg)', false, per('sodium'))}
+      <details class="more-nutrients" ${f?.micros ? 'open' : ''}><summary>Vitamins, minerals and more (optional)</summary>
+        <div class="row2">${MICRO_KEYS.map((k) => numField(`m-${k}`, `${MICROS[k].label} (${MICROS[k].unit})`, false, perMicro(k))).join('')}</div>
+      </details>
       <button class="primary">${f ? 'Save food' : s.target ? 'Save and continue' : 'Save food'}</button>
     </form></section></main>`;
 }
@@ -370,7 +386,7 @@ export const handlers: Handlers = {
       const s = state.screen;
       if (s.name !== 'food') return;
       const { amount, unit } = formAmount(form, s.food);
-      document.getElementById('preview')!.innerHTML = nutritionHtml(scale(s.food.per100, amount * unit.grams), s.target.kind === 'diary');
+      document.getElementById('preview')!.innerHTML = nutritionHtml(s.food, amount * unit.grams, s.target.kind === 'diary');
     },
   },
   forms: {
@@ -400,10 +416,16 @@ export const handlers: Handlers = {
       if (s.name !== 'custom') return;
       const serving = n(fd, 'serving') || 100;
       const per100 = Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, (n(fd, k) / serving) * 100])) as unknown as Nutrients;
+      const micros: Micros = {};
+      for (const k of MICRO_KEYS) {
+        const typed = String(fd.get(`m-${k}`) ?? '').trim();
+        if (typed) micros[k] = (Number(typed) / serving) * 100;
+      }
       const food: Food = {
         id: s.edit?.id ?? (s.barcode ? `my:${s.barcode}` : `my:${newId()}`),
         name: String(fd.get('name')).trim(), brand: String(fd.get('brand') ?? '').trim() || undefined,
-        per100, servingGrams: serving, servingLabel: String(fd.get('servingName') ?? '').trim() || `${grams(serving)} g`,
+        per100, micros: Object.keys(micros).length ? micros : undefined,
+        servingGrams: serving, servingLabel: String(fd.get('servingName') ?? '').trim() || `${grams(serving)} g`,
       };
       state.data.myFoods = s.edit
         ? state.data.myFoods.map((f) => (f.id === food.id ? food : f))
