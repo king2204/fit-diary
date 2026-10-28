@@ -58,12 +58,22 @@ const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u)
 // "  Chicken   BREAST " -> "chicken breast", to look searches up.
 export const normalize = (query: string) => words(query).join(' ');
 
+// Words a search can leave out: "n" in "Chick n' Roll", "and", "with".
+const SMALL_WORDS = new Set(['n', 'a', 'and', 'with', 'the', 'of', 'in', 'or']);
+
+// The words that must match. A search of only small words keeps them.
+export function searchWords(query: string): string[] {
+  const all = words(query);
+  const kept = all.filter((w) => !SMALL_WORDS.has(w));
+  return kept.length ? kept : all;
+}
+
 // Every typed word starts a word of the text: "oat mi" matches "Oat milk" but "oat" doesn't match "Goat cheese".
 // Thai and other languages written without spaces match anywhere in the text instead.
 export function matches(text: string, query: string): boolean {
   const ws = words(text);
   const lower = text.toLowerCase();
-  const typed = words(query);
+  const typed = searchWords(query);
   return typed.length > 0 && typed.every((t) => ws.some((w) => w.startsWith(t)) || (/[^\u0000-ɏ]/.test(t) && lower.includes(t)));
 }
 
@@ -119,7 +129,7 @@ const PROCESSED = new RegExp('\\b(deli|breaded|prepackaged|imitation|flavou?r|fl
 // come before processed ones; brand products (a brand, or a BRAND in capitals inside the name) and long names
 // come later. Equal scores keep the databases' own order.
 export function rankFoods(query: string, foods: Food[]): Food[] {
-  const typed = words(query);
+  const typed = searchWords(query);
   const score = (f: Food) => {
     const name = f.name.toLowerCase();
     const parts = name.split(',').map(words);

@@ -3,7 +3,7 @@
 // Loaded on the first search, then searched on the phone with no limits.
 import { MICRO_KEYS, zero, type Micro, type Micros, type Nutrients } from './nutrition';
 import type { Food } from './store';
-import { matches, normalize, rankFoods } from './suggest';
+import { matches, normalize, rankFoods, searchWords } from './suggest';
 
 export interface BasicFoodsFile {
   keys: string[]; // nutrient names, in the order of each food's values
@@ -41,17 +41,15 @@ export function parseBasicFoods(file: BasicFoodsFile): BasicFoods {
 }
 
 // Pinned best matches for common searches, then the rest by rank. When a search of several words finds
-// almost nothing, foods matching some of the words are added after.
+// almost nothing, foods matching at least half of the words are added after.
 export function searchBasicList(list: BasicFoods, query: string): { best: Food[]; rest: Food[] } {
   const best = list.best.get(normalize(query)) ?? [];
-  let found = list.foods.filter((f) => matches(f.name, query) && !best.includes(f));
-  const typed = normalize(query).split(' ');
-  if (found.length + best.length < 5 && typed.length > 1) {
-    const some = list.foods.filter((f) => !best.includes(f) && !found.includes(f) && typed.some((t) => matches(f.name, t)));
-    found = [...rankFoods(query, found), ...rankFoods(query, some)];
-    return { best, rest: found };
-  }
-  return { best, rest: rankFoods(query, found) };
+  const found = list.foods.filter((f) => matches(f.name, query) && !best.includes(f));
+  const typed = searchWords(query);
+  if (found.length + best.length >= 5 || typed.length < 2) return { best, rest: rankFoods(query, found) };
+  const some = list.foods.filter((f) => !best.includes(f) && !found.includes(f)
+    && typed.filter((t) => matches(f.name, t)).length >= Math.ceil(typed.length / 2));
+  return { best, rest: [...rankFoods(query, found), ...rankFoods(query, some)] };
 }
 
 let loading: Promise<BasicFoods> | null = null;

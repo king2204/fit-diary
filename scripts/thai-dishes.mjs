@@ -1,5 +1,5 @@
-// Thai dishes that the USDA lists don't have, estimated from USDA ingredients with typical Thai street-food
-// portions. These are estimates, not lab values: real plates vary with the cook and the portion.
+// Thai dishes (and a Thai fast-food item) that the USDA lists don't have, estimated from USDA ingredients with
+// typical Thai portions. These are estimates, not lab values: real plates vary with the cook and the portion.
 // Each ingredient: [short label shown to the user, exact USDA name, grams in one portion].
 
 const RICE = 'Rice, white, long-grain, regular, enriched, cooked';
@@ -139,6 +139,13 @@ export const THAI_DISHES = [
     id: 'cha-yen', name: 'Thai iced tea (ชาเย็น)', portion: '1 glass',
     items: [['black tea', 'Beverages, tea, black, brewed, prepared with tap water', 200], ['condensed milk', CONDENSED, 30], ['evaporated milk', EVAPORATED, 30],
       ['sugar', SUGAR, 15]],
+  },
+  // KFC Thailand publishes no nutrition data for this; built from KFC's own crispy strip (USDA) and a small wrap.
+  {
+    id: 'kfc-chick-n-roll', name: "KFC Chick n' Roll (ชิคแอนด์โรล), fried chicken wrap", portion: '1 roll',
+    items: [['KFC crispy chicken strip', 'KFC, Crispy Chicken Strips', 50], ['flour tortilla', 'Tortillas, ready-to-bake or -fry, flour, refrigerated', 30],
+      ['mayonnaise sauce', 'Salad dressing, mayonnaise, regular', 8], ['chili sauce', 'Sauce, ready-to-serve, pepper or hot', 4],
+      ['lettuce', 'Lettuce, iceberg (includes crisphead types), raw', 8]],
   },
   {
     id: 'kafae-yen', name: 'Thai iced coffee (กาแฟเย็น)', portion: '1 glass',

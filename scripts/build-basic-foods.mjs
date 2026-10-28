@@ -44,6 +44,7 @@ const STICKY = 'Rice, white, glutinous, unenriched, cooked';
 const NOODLES = 'Noodles, egg, cooked, enriched, with added salt';
 const WRAP = 'Chicken fillet wrap sandwich, fried, from fast food';
 const SAUCED_WINGS = 'Chicken "wings" with other sauces or seasoning, from fast food / restaurant';
+const ROLL = 'th:kfc-chick-n-roll';
 const BEST = {
   'chicken breast': [COOKED_BREAST, RAW_BREAST],
   chicken: [COOKED_BREAST, RAW_BREAST, 'Chicken, broilers or fryers, thigh, meat only, cooked, roasted'],
@@ -119,17 +120,25 @@ const BEST = {
   noodles: [NOODLES],
   'egg noodles': [NOODLES],
   // Fast food and Korean chicken: the closest USDA generic items (no official Thai menu data exists).
-  kfc: ['KFC, Fried Chicken, ORIGINAL RECIPE, Breast, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Thigh, meat and skin with breading',
+  kfc: [ROLL, 'KFC, Fried Chicken, ORIGINAL RECIPE, Breast, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Thigh, meat and skin with breading',
     'KFC, Fried Chicken, ORIGINAL RECIPE, Drumstick, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Wing, meat and skin with breading',
     'KFC, Popcorn Chicken', 'Chicken fillet wrap sandwich, fried, from fast food'],
-  'chicken roll': [WRAP],
-  'chick n roll': [WRAP],
-  'kfc chicken roll': [WRAP],
-  'kfc roll': [WRAP],
+  'chicken roll': [ROLL, WRAP],
+  'chick n roll': [ROLL, WRAP],
+  'chick roll': [ROLL, WRAP],
+  'kfc chick n roll': [ROLL, WRAP],
+  'kfc chick roll': [ROLL, WRAP],
+  'kfc chicken roll': [ROLL, WRAP],
+  'kfc roll': [ROLL, WRAP],
+  'ชิคแอนด์โรล': [ROLL, WRAP],
   'chicken wrap': [WRAP, 'Chicken fillet wrap sandwich, grilled, from fast food'],
   'fried chicken': ['Chicken thigh, fried, coated, skin / coating eaten, from fast food',
     'Chicken drumstick, fried, coated, skin / coating eaten, from fast food / restaurant', 'Chicken wing, fried, coated, from fast food'],
   bonchon: [SAUCED_WINGS, 'Chicken wing, fried, coated, from restaurant'],
+  'bonchon wings': [SAUCED_WINGS, 'Chicken wing, fried, coated, from restaurant'],
+  'bonchon soy garlic': [SAUCED_WINGS],
+  'bonchon spicy': ['Chicken "wings" with hot sauce, from fast food / restaurant', SAUCED_WINGS],
+  'soy garlic wings': [SAUCED_WINGS],
   'korean fried chicken': [SAUCED_WINGS, 'Chicken wing, fried, coated, from restaurant'],
   'chicken wings': [SAUCED_WINGS, 'Chicken wing, fried, coated, from fast food', 'Chicken "wings" with hot sauce, from fast food / restaurant'],
   wings: [SAUCED_WINGS, 'Chicken wing, fried, coated, from fast food'],

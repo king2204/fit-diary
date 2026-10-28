@@ -163,8 +163,9 @@ describe('built-in food list', () => {
     expect(ids(searchBasicList(list, ' MILK '))).toEqual(['usda:2', 'usda:1', 'usda:3']);
     expect(ids(searchBasicList(list, 'egg'))).toEqual(['usda:5', 'usda:4']); // the word itself before "eggplant"
     expect(ids(searchBasicList(list, 'salmon'))).toEqual(['usda:7', 'usda:6']);
-    // Nothing has both words: foods with some of them follow.
-    expect(ids(searchBasicList(list, 'rolled oats salmon'))).toEqual(['usda:7', 'usda:6']);
+    // Nothing has all the words: foods with at least half of them follow ("salmonberries" has only one).
+    expect(ids(searchBasicList(list, 'salmon fish oats'))).toEqual(['usda:7']);
+    expect(ids(searchBasicList(list, 'rolled salmon'))).toEqual(['usda:7', 'usda:6']);
   });
 });
 
@@ -176,6 +177,8 @@ describe('search suggestions', () => {
     expect(matches('ข้าวมันไก่', 'ข้าว')).toBe(true);
     expect(matches('ข้าวมันไก่', 'มันไก่')).toBe(true);
     expect(matches('Banana', ' ')).toBe(false);
+    expect(matches("KFC Chick n' Roll (ชิคแอนด์โรล), fried chicken wrap", "KFC Chick n' Roll")).toBe(true); // "n" is ignored
+    expect(matches('Macaroni and cheese', 'mac n cheese')).toBe(true);
   });
 
   it('suggests past searches first, then common foods that start with the text', () => {
