@@ -44,6 +44,9 @@ export const COMMON_FOODS = [
   'pad thai', 'pad kra pao', 'basil chicken', 'green curry', 'red curry', 'massaman curry', 'panang curry', 'tom yum', 'tom kha gai',
   'som tam', 'papaya salad', 'khao man gai', 'khao pad', 'khao soi', 'moo ping', 'larb', 'satay', 'mango sticky rice', 'pad see ew',
   'boat noodles', 'congee', 'bbq pork', 'dim sum', 'bibimbap', 'kimchi', 'miso soup', 'pho', 'banh mi', 'laksa', 'nasi lemak',
+  'jok', 'khao kha moo', 'kai jeow', 'thai omelette', 'yam woon sen', 'pad pak boong', 'cha yen', 'thai iced coffee', 'tteokbokki',
+  // Fast food
+  'kfc', 'chicken roll', 'chicken wrap', 'bonchon', 'korean fried chicken', 'chicken nuggets', 'chicken tenders',
   // Oils and sauces
   'coconut oil', 'olive oil', 'vegetable oil', 'mayonnaise', 'ketchup', 'soy sauce', 'fish sauce', 'oyster sauce', 'sriracha',
   'hummus', 'salsa', 'ranch dressing', 'mustard',

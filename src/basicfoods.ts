@@ -1,13 +1,15 @@
-// The built-in food list: about 7,400 basic foods from USDA SR Legacy (public domain), built by
-// scripts/build-basic-foods.mjs. Loaded on the first search, then searched on the phone with no limits.
+// The built-in food list, built by scripts/build-basic-foods.mjs: about 12,300 foods from USDA (public domain;
+// SR Legacy basics plus FNDDS dishes, fast food and drinks) and Thai dishes estimated from USDA ingredients.
+// Loaded on the first search, then searched on the phone with no limits.
 import { MICRO_KEYS, zero, type Micro, type Micros, type Nutrients } from './nutrition';
 import type { Food } from './store';
 import { matches, normalize, rankFoods } from './suggest';
 
 export interface BasicFoodsFile {
   keys: string[]; // nutrient names, in the order of each food's values
-  best: Record<string, number[]>; // common search -> ids of what most people mean, best first
-  foods: [fdcId: number, name: string, values: (number | null)[], portions: [label: string, grams: number][]][];
+  best: Record<string, (number | string)[]>; // common search -> ids of what most people mean, best first
+  // USDA foods have their FoodData Central id; Thai dish estimates have ids like "th:khao-man-gai" and a note.
+  foods: [id: number | string, name: string, values: (number | null)[], portions: [label: string, grams: number][], note?: string][];
 }
 
 export interface BasicFoods {
@@ -18,7 +20,7 @@ export interface BasicFoods {
 const isMicro = (k: string): k is Micro => (MICRO_KEYS as readonly string[]).includes(k);
 
 export function parseBasicFoods(file: BasicFoodsFile): BasicFoods {
-  const foods = file.foods.map(([id, name, values, portions]): Food => {
+  const foods = file.foods.map(([id, name, values, portions, note]): Food => {
     const per100 = zero();
     const micros: Micros = {};
     file.keys.forEach((k, i) => {
@@ -28,12 +30,13 @@ export function parseBasicFoods(file: BasicFoodsFile): BasicFoods {
       else if (isMicro(k)) micros[k] = v;
     });
     return {
-      id: `usda:${id}`, name, per100, micros: Object.keys(micros).length ? micros : undefined,
-      portions: portions.map(([label, grams]) => ({ label, grams })),
+      id: typeof id === 'number' ? `usda:${id}` : id, name, per100, micros: Object.keys(micros).length ? micros : undefined,
+      portions: portions.map(([label, grams]) => ({ label, grams })), ...(note ? { note } : {}),
     };
   });
   const byId = new Map(foods.map((f) => [f.id, f]));
-  const best = new Map(Object.entries(file.best ?? {}).map(([q, ids]) => [q, ids.map((id) => byId.get(`usda:${id}`)).filter((f): f is Food => !!f)]));
+  const best = new Map(Object.entries(file.best ?? {}).map(([q, ids]) => [q, ids
+    .map((id) => byId.get(typeof id === 'number' ? `usda:${id}` : id)).filter((f): f is Food => !!f)]));
   return { foods, best };
 }
 

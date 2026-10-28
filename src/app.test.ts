@@ -144,6 +144,16 @@ describe('built-in food list', () => {
     });
   });
 
+  it('keeps Thai dish ids and their estimate notes', () => {
+    const { foods: [dish], best } = parseBasicFoods({
+      keys, best: { 'khao man gai': ['th:khao-man-gai'] },
+      foods: [['th:khao-man-gai', 'Khao man gai (ข้าวมันไก่)', [164, 8.3, 18.4, 6, 1, 0.3, 180, null, null, null], [['1 plate', 386]], 'Estimate from USDA ingredients: rice 220 g']],
+    });
+    expect(dish).toMatchObject({ id: 'th:khao-man-gai', note: 'Estimate from USDA ingredients: rice 220 g', portions: [{ label: '1 plate', grams: 386 }] });
+    expect(best.get('khao man gai')).toEqual([dish]);
+    expect(searchBasicList({ foods: [dish], best }, 'ข้าวมันไก่').rest).toEqual([dish]); // Thai search
+  });
+
   it('puts pinned best matches first, then the best ranked', () => {
     const list = parseBasicFoods({ keys, best: { milk: [2] }, foods: [
       row(1, 'Milk, buttermilk, fluid, whole'), row(2, 'Milk, whole, 3.25% milkfat, with added vitamin D'), row(3, 'Milk, sheep, fluid'),

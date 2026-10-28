@@ -47,7 +47,7 @@ function rowPortion(f: Food): { label: string; grams: number } {
 function foodRow(f: Food, list: string, i: number): string {
   const p = rowPortion(f);
   return `<li class="row-add"><button data-act="pick" data-list="${list}" data-i="${i}">
-      <span class="name">${esc(f.name)}<small>${kcal(scale(f.per100, p.grams).kcal)} kcal, ${esc(p.label)}${f.brand ? `, ${esc(f.brand)}` : ''}</small></span></button>
+      <span class="name">${esc(f.name)}<small>${kcal(scale(f.per100, p.grams).kcal)} kcal, ${esc(p.label)}${f.brand ? `, ${esc(f.brand)}` : ''}${f.note ? ', estimate' : ''}</small></span></button>
     <button class="add-circle" data-act="quick-log" data-list="${list}" data-i="${i}" aria-label="Add ${esc(f.name)}">${icon('plus')}</button></li>`;
 }
 
@@ -213,6 +213,7 @@ export function foodView(s: FoodScreen): string {
     <section class="card">
       <h2 class="food-name">${esc(f.name)}</h2>
       ${f.brand ? `<p class="muted">${esc(f.brand)}</p>` : ''}
+      ${f.note ? `<p class="muted">${esc(f.note)}. Real plates vary; change the amount if yours is bigger or smaller.</p>` : ''}
       <form id="food-form" data-form="food" class="rows">
         ${meal ? `<label class="field-row"><span>Meal</span><select name="meal">${MEALS.map((m) => option(m, mealName(m), meal)).join('')}</select></label>` : ''}
         <label class="field-row"><span>Amount</span><input name="amount" type="number" inputmode="decimal" step="any" min="0" value="${start.amount}" required></label>

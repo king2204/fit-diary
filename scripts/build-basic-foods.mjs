@@ -1,12 +1,16 @@
-// Builds public/data/basic-foods.json, the app's built-in food list, from USDA FoodData Central
-// "SR Legacy" (public domain): https://fdc.nal.usda.gov/download-datasets
-// The JSON has the foods; the CSV download adds the portion amounts the JSON leaves out ("1/3 cup", "3 oz").
+// Builds public/data/basic-foods.json, the app's built-in food list, from USDA FoodData Central (public domain,
+// https://fdc.nal.usda.gov/download-datasets):
+// - "SR Legacy": basic foods. Its JSON leaves out portion amounts ("1/3 cup", "3 oz"); the CSV download has them.
+// - "Survey (FNDDS)": mixed dishes, fast food, drinks.
+// plus Thai dishes estimated from those ingredients (scripts/thai-dishes.mjs).
 //   curl -O https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_json_2021-10-28.zip
 //   curl -O https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_csv_2018-04.zip
-//   unzip both, then:
+//   curl -O https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip
+//   unzip all three, then:
 //   node scripts/build-basic-foods.mjs FoodData_Central_sr_legacy_food_json_2021-10-28.json \
-//     FoodData_Central_sr_legacy_food_csv_2018-04/food_portion.csv
+//     FoodData_Central_sr_legacy_food_csv_2018-04/food_portion.csv surveyDownload.json
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { THAI_DISHES } from './thai-dishes.mjs';
 
 // Nutrients in the order src/basicfoods.ts reads them. Each: USDA nutrient numbers in order of preference, with a
 // factor to the app's unit (vitamin D in IU: 1 IU = 0.025 mcg).
@@ -19,6 +23,8 @@ const KEYS = [
 ];
 // Not useful in an adult diary.
 const SKIP_CATEGORIES = new Set(['Baby Foods']);
+// FNDDS categories left out: baby foods, and plain foods SR Legacy already has.
+const SKIP_SURVEY = /^(Baby |Formula|Human milk|Apples|Bananas|Blueberries|Citrus fruits|Grapes|Melons|Pears|Peaches|Pineapple|Strawberries|Mango and papaya|Dried fruits|Nuts and seeds|Beans, peas, legumes|Tap water|Bottled water|Enhanced water|Sugars and honey|Sugar substitutes|Butter and animal fats|Margarine|Not included)/;
 // USDA adds this to some names; it means nothing to the user.
 const NOTE = " (Includes foods for USDA's Food Distribution Program)";
 
@@ -36,6 +42,8 @@ const COFFEE = 'Beverages, coffee, brewed, prepared with tap water';
 const COLA = 'Beverages, carbonated, cola, regular';
 const STICKY = 'Rice, white, glutinous, unenriched, cooked';
 const NOODLES = 'Noodles, egg, cooked, enriched, with added salt';
+const WRAP = 'Chicken fillet wrap sandwich, fried, from fast food';
+const SAUCED_WINGS = 'Chicken "wings" with other sauces or seasoning, from fast food / restaurant';
 const BEST = {
   'chicken breast': [COOKED_BREAST, RAW_BREAST],
   chicken: [COOKED_BREAST, RAW_BREAST, 'Chicken, broilers or fryers, thigh, meat only, cooked, roasted'],
@@ -110,6 +118,62 @@ const BEST = {
   popcorn: ['Snacks, popcorn, air-popped'],
   noodles: [NOODLES],
   'egg noodles': [NOODLES],
+  // Fast food and Korean chicken: the closest USDA generic items (no official Thai menu data exists).
+  kfc: ['KFC, Fried Chicken, ORIGINAL RECIPE, Breast, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Thigh, meat and skin with breading',
+    'KFC, Fried Chicken, ORIGINAL RECIPE, Drumstick, meat and skin with breading', 'KFC, Fried Chicken, ORIGINAL RECIPE, Wing, meat and skin with breading',
+    'KFC, Popcorn Chicken', 'Chicken fillet wrap sandwich, fried, from fast food'],
+  'chicken roll': [WRAP],
+  'chick n roll': [WRAP],
+  'kfc chicken roll': [WRAP],
+  'kfc roll': [WRAP],
+  'chicken wrap': [WRAP, 'Chicken fillet wrap sandwich, grilled, from fast food'],
+  'fried chicken': ['Chicken thigh, fried, coated, skin / coating eaten, from fast food',
+    'Chicken drumstick, fried, coated, skin / coating eaten, from fast food / restaurant', 'Chicken wing, fried, coated, from fast food'],
+  bonchon: [SAUCED_WINGS, 'Chicken wing, fried, coated, from restaurant'],
+  'korean fried chicken': [SAUCED_WINGS, 'Chicken wing, fried, coated, from restaurant'],
+  'chicken wings': [SAUCED_WINGS, 'Chicken wing, fried, coated, from fast food', 'Chicken "wings" with hot sauce, from fast food / restaurant'],
+  wings: [SAUCED_WINGS, 'Chicken wing, fried, coated, from fast food'],
+  nuggets: ['Chicken nuggets, from fast food'],
+  'chicken nuggets': ['Chicken nuggets, from fast food'],
+  'pad thai': ['Pad Thai with chicken', 'Pad Thai with seafood', 'Pad Thai with meat'],
+  'ผัดไทย': ['Pad Thai with chicken', 'Pad Thai with seafood', 'Pad Thai with meat'],
+  'fried rice': ['Rice, fried, with chicken', 'Rice, fried, with pork', 'Rice, fried, with shrimp'],
+  'khao pad': ['Rice, fried, with pork', 'Rice, fried, with chicken', 'Rice, fried, with shrimp'],
+  'ข้าวผัด': ['Rice, fried, with pork', 'Rice, fried, with chicken', 'Rice, fried, with shrimp'],
+  'bubble tea': ['Tea, bubble'],
+  boba: ['Tea, bubble'],
+  'ชานมไข่มุก': ['Tea, bubble'],
+  // Thai dishes estimated from ingredients, by id.
+  'khao man gai': ['th:khao-man-gai'],
+  'chicken rice': ['th:khao-man-gai'],
+  'pad kra pao': ['th:pad-kra-pao-moo', 'th:pad-kra-pao-gai'],
+  'kra pao': ['th:pad-kra-pao-moo', 'th:pad-kra-pao-gai'],
+  'basil pork': ['th:pad-kra-pao-moo'],
+  'basil chicken': ['th:pad-kra-pao-gai'],
+  'som tam': ['th:som-tam-thai'],
+  'papaya salad': ['th:som-tam-thai'],
+  'tom yum': ['th:tom-yum-goong'],
+  'tom kha gai': ['th:tom-kha-gai'],
+  'green curry': ['th:green-curry-gai'],
+  massaman: ['th:massaman-gai'],
+  'khao soi': ['th:khao-soi-gai'],
+  'boat noodles': ['th:boat-noodles'],
+  jok: ['th:jok-moo'],
+  congee: ['th:jok-moo'],
+  'mango sticky rice': ['th:mango-sticky-rice'],
+  'khao kha moo': ['th:khao-kha-moo'],
+  'pad see ew': ['th:pad-see-ew'],
+  satay: ['th:moo-satay'],
+  'moo ping': ['th:moo-ping'],
+  larb: ['th:larb-moo'],
+  'kai jeow': ['th:kai-jeow'],
+  'thai omelette': ['th:kai-jeow'],
+  'yam woon sen': ['th:yam-woon-sen'],
+  'pad pak boong': ['th:pad-pak-boong'],
+  'morning glory': ['th:pad-pak-boong'],
+  'thai iced tea': ['th:cha-yen'],
+  'cha yen': ['th:cha-yen'],
+  'thai iced coffee': ['th:kafae-yen'],
 };
 const FRACTIONS = { 0.25: '1/4', 0.33: '1/3', 0.5: '1/2', 0.67: '2/3', 0.75: '3/4', 1.5: '1 1/2' };
 const round = (v) => Number(v.toPrecision(3));
@@ -166,12 +230,55 @@ for (const f of SRLegacyFoods) {
     });
   foods.push([f.fdcId, f.description.replace(NOTE, ''), row, portions]);
 }
+
+// FNDDS: one row of nutrients per food, like SR Legacy; portions are already described ("1 cup", "1 wrap").
+// Its default portion ("Quantity not specified") is a typical serving, so it comes first. Names SR Legacy
+// already has are skipped.
+const srNames = new Set(foods.map((f) => f[1]));
+const { SurveyFoods } = JSON.parse(readFileSync(process.argv[4], 'utf8'));
+for (const f of SurveyFoods) {
+  if (SKIP_SURVEY.test(f.wweiaFoodCategory?.wweiaFoodCategoryDescription ?? 'Not included') || srNames.has(f.description)) continue;
+  const values = new Map();
+  for (const n of f.foodNutrients) if (n.amount !== undefined && !values.has(n.nutrient.number)) values.set(n.nutrient.number, n.amount);
+  const row = KEYS.map(([, sources]) => {
+    const found = sources.find(([number]) => values.has(number));
+    return found ? round(values.get(found[0]) * found[1]) : null;
+  });
+  if (row[0] === null) continue;
+  const portions = (f.foodPortions ?? [])
+    .filter((p) => p.gramWeight > 0 && p.portionDescription?.trim())
+    .map((p) => [p.portionDescription === 'Quantity not specified' ? 'serving' : p.portionDescription.trim(), round(p.gramWeight)])
+    .sort((a, b) => Number(b[0] === 'serving') - Number(a[0] === 'serving'));
+  foods.push([f.fdcId, f.description, row, portions]);
+}
+
+// Thai dishes: add up their ingredients, then per 100 g of the whole dish. A nutrient none of the
+// ingredients list stays unknown.
+const byName = new Map(foods.map((f) => [f[1], f]));
+for (const dish of THAI_DISHES) {
+  const total = KEYS.map(() => null);
+  let grams = 0;
+  for (const [, name, g] of dish.items) {
+    const food = byName.get(name);
+    if (!food) throw new Error(`${dish.id}: ingredient "${name}" is not in the data`);
+    grams += g;
+    food[2].forEach((v, i) => {
+      if (v !== null) total[i] = (total[i] ?? 0) + (v * g) / 100;
+    });
+  }
+  const note = `Estimate from USDA ingredients: ${dish.items.map(([label, , g]) => `${label} ${g} g`).join(', ')}`;
+  foods.push([`th:${dish.id}`, dish.name, total.map((v) => (v === null ? null : round((v * 100) / grams))), [[dish.portion, grams]], note]);
+}
 foods.sort((a, b) => a[1].localeCompare(b[1]));
 
-// Best matches as food ids. A name that is missing or not unique stops the build.
+// Best matches as food ids ("th:..." ids pass through). A name that is missing or not unique stops the build.
 const ids = new Map();
 for (const [id, name] of foods) ids.set(name, ids.has(name) ? null : id);
 const best = Object.fromEntries(Object.entries(BEST).map(([query, names]) => [query, names.map((name) => {
+  if (name.startsWith('th:')) {
+    if (!foods.some((f) => f[0] === name)) throw new Error(`Best match "${name}" for "${query}" is not a Thai dish`);
+    return name;
+  }
   const id = ids.get(name);
   if (!id) throw new Error(`Best match "${name}" for "${query}" is ${id === null ? 'not unique' : 'not in the data'}`);
   return id;
@@ -179,6 +286,7 @@ const best = Object.fromEntries(Object.entries(BEST).map(([query, names]) => [qu
 
 mkdirSync('public/data', { recursive: true });
 writeFileSync('public/data/basic-foods.json', JSON.stringify({
-  source: 'USDA FoodData Central, SR Legacy (2021-10-28). Public domain.', keys: KEYS.map(([k]) => k), best, foods,
+  source: 'USDA FoodData Central: SR Legacy (2021-10-28) and FNDDS (2024-10-31). Public domain. Thai dishes are estimates.',
+  keys: KEYS.map(([k]) => k), best, foods,
 }));
 console.log(`${foods.length} foods written to public/data/basic-foods.json`);

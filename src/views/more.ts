@@ -43,7 +43,8 @@ export function settingsView(_s: Extract<Screen, { name: 'settings' }>): string 
       </section>
       <section class="card stack"><h2>Food search</h2>
         <label>USDA API key<input name="usdaKey" value="${esc(d.usdaKey)}" autocomplete="off" placeholder="Optional, free"></label>
-        <p class="muted">About 7,400 basic foods are built in and work without a key, with no limit. Brand products come from
+        <p class="muted">About 12,000 foods are built in (basic foods, dishes, fast food and drinks from USDA, plus Thai dishes
+          estimated from USDA ingredients) and work without a key, with no limit. Brand products come from
           USDA online: without a key it allows only a few searches per hour. Get a free key at
           <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov</a> and paste it here.</p>
       </section>

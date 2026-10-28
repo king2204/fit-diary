@@ -9,6 +9,7 @@ export interface Food {
   brand?: string;
   per100: Nutrients; // per 100 g (or ml)
   micros?: Micros; // per 100 g; only what the database lists
+  note?: string; // e.g. how an estimate was made
   servingGrams?: number;
   servingLabel?: string;
   portions?: Unit[]; // household measures (1 medium, 1 cup...); [] once looked up and none exist
