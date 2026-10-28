@@ -150,6 +150,10 @@ p.pad { padding: 10px 16px 12px; }
 .center-card { display: grid; justify-items: center; gap: 12px; text-align: center; }
 .center-card label { width: 100%; text-align: left; }
 .kv { display: flex; justify-content: space-between; gap: 12px; }
+.check-row { display: flex; align-items: flex-start; gap: 12px; color: var(--text); font-size: 16px; }
+.check-row input { width: 22px; height: 22px; flex: none; margin: 2px 0 0; padding: 0; accent-color: var(--brand); }
+.check-row span { display: grid; gap: 2px; }
+.check-row small { color: var(--muted); font-size: 13px; }
 .kv span { color: var(--text-2); }
 
 /* Dashboard */
@@ -159,6 +163,7 @@ p.pad { padding: 10px 16px 12px; }
 .legend li .ic { color: var(--muted); width: 22px; height: 22px; }
 .legend span { display: grid; }
 .legend b { color: var(--text); font-size: 17px; font-variant-numeric: tabular-nums; }
+.smart-line { display: block; margin-top: 12px; text-align: left; font-weight: 600; }
 .macro-rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
 .macro-rings > div { display: grid; justify-items: center; gap: 4px; font-size: 14px; }
 .macro-rings small { color: var(--muted); font-size: 12px; }

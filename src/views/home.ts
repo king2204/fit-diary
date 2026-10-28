@@ -63,11 +63,14 @@ export function homeView(): string {
       <div class="cal-card">
         ${ring(food.kcal, goals.kcal + burned, 136, 12, over ? 'over' : '', `<b>${kcal(Math.abs(remaining))}</b><small>${over ? 'Over' : 'Remaining'}</small>`)}
         <ul class="legend">
-          <li>${icon('flag')}<span>Base goal<b>${kcal(goals.kcal)}</b></span></li>
+          <li>${icon('flag')}<span>Base goal${goals.smart?.ready ? ' (smart)' : ''}<b>${kcal(goals.kcal)}</b></span></li>
           <li>${icon('food')}<span>Food<b>${kcal(food.kcal)}</b></span></li>
           <li>${icon('flame')}<span>Exercise<b>${kcal(burned)}</b></span></li>
         </ul>
       </div>
+      ${goals.smart ? `<button class="link small smart-line" data-act="open" data-to="goals">${goals.smart.ready
+        ? `Smart goal: your body burns about ${kcal(goals.smart.kcal)} kcal a day`
+        : `Smart goal is learning: ${Math.min(goals.smart.foodDays, 10)}/10 food days, ${Math.min(goals.smart.span, 14)}/14 days of weigh-ins`}</button>` : ''}
     </section>
     <section class="card">
       <h2>Macros</h2>

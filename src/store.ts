@@ -1,6 +1,6 @@
 import {
-  AUTO_SODIUM, MICRO_KEYS, NUTRIENT_KEYS, add, addMicros, autoFiber, autoSugar, calorieGoal, fiveWeekWeight, macroGrams, maintenanceKcal,
-  microGoals, scale, scaleMicros, zero, type MacroSplit, type Micro, type Micros, type Nutrients, type Profile,
+  AUTO_SODIUM, KCAL_PER_KG, MICRO_KEYS, NUTRIENT_KEYS, add, addMicros, autoFiber, autoSugar, calorieGoal, fiveWeekWeight, goalFromMaintenance,
+  macroGrams, maintenanceKcal, microGoals, scale, scaleMicros, zero, type MacroSplit, type Micro, type Micros, type Nutrients, type Profile,
 } from './nutrition';
 
 export interface Food {
@@ -75,6 +75,7 @@ export interface Goals extends MacroSplit {
   sodiumMg: number | null;
   waterMl: number;
   goalWeightKg: number | null;
+  smartGoal: boolean; // learn the daily burn from weigh-ins and food logs
   steps: number;
   workoutsPerWeek: number;
   minutesPerWorkout: number;
@@ -149,7 +150,7 @@ export function defaultData(): Data {
     profile: { sex: 'female', birthYear: 1995, heightCm: 165, activity: 'light', weeklyChangeKg: -0.5 },
     goals: {
       kcalOverride: null, carbsPct: 50, proteinPct: 20, fatPct: 30, sugarG: null, fiberG: null, sodiumMg: null, waterMl: 2000,
-      goalWeightKg: null, steps: 10000, workoutsPerWeek: 3, minutesPerWorkout: 30,
+      goalWeightKg: null, smartGoal: true, steps: 10000, workoutsPerWeek: 3, minutesPerWorkout: 30,
     },
     days: {},
     weights: [],
@@ -305,13 +306,70 @@ export function weightProgress(d: Data): WeightProgress | null {
   return { start, current, goal, toGo, reached, weeksLeft };
 }
 
-// "If every day were like this one, you'd weigh ... in 5 weeks."
+// "If every day were like this one, you'd weigh ... in 5 weeks." Uses the smart daily burn once it is known.
 export function projection(d: Data, date: string): number | null {
   const log = d.days[date];
   const weight = weightOn(d, date);
   if (!log?.foods.length || weight === null) return null;
   const net = foodTotals(log).kcal - exerciseTotal(log);
-  return fiveWeekWeight(weight, maintenanceKcal(d.profile, weight, Number(date.slice(0, 4))), net);
+  const smart = d.goals.smartGoal ? estimateExpenditure(d, date) : null;
+  return fiveWeekWeight(weight, smart?.ready ? smart.kcal : maintenanceKcal(d.profile, weight, Number(date.slice(0, 4))), net);
+}
+
+// ---------- Smart calorie goal ----------
+
+const SMART_DAYS = 28; // the window looked at
+const MIN_SPAN = 14; // days between the first and last weigh-in
+const MIN_WEIGH_INS = 3;
+const MIN_FOOD_DAYS = 10;
+const MIN_LOGGED_SHARE = 0.4; // days logging less than 40% of the formula's burn are probably incomplete
+const MAX_SHIFT = 0.25; // never more than 25% away from the formula
+
+export interface Expenditure {
+  kcal: number; // daily burn, not counting logged exercise: the data blended with the formula, rounded to 10
+  formula: number; // what the formula alone says
+  measured: number; // what the data alone says
+  foodDays: number; // logged days used, of the last 28
+  span: number; // days between the first and last weigh-in used
+  weighIns: number;
+  kgPerWeek: number; // the weight trend
+  trust: number; // 0-1: how much the data counts against the formula (full after 4 weeks of weigh-ins)
+  ready: boolean; // enough data to use it instead of the formula
+}
+
+const dayNumber = (date: string) => Date.parse(`${date}T00:00:00Z`) / 86400000;
+
+// Least-squares slope of weight over time, in kg per day: steadier than first-to-last when water weight jumps around.
+function weightSlope(ws: { date: string; kg: number }[]): number {
+  const xs = ws.map((w) => dayNumber(w.date));
+  const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const my = ws.reduce((a, w) => a + w.kg, 0) / ws.length;
+  const sxx = xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+  return sxx ? xs.reduce((a, x, i) => a + (x - mx) * (ws[i].kg - my), 0) / sxx : 0;
+}
+
+// What the user really burns, from the last 4 weeks of their own data: food eaten minus the energy that went into
+// (or came out of) body weight, at 7,700 kcal per kg. Logged exercise is taken out, because the diary adds it back
+// each day. The result leans on the formula at first and trusts the data fully after 4 weeks of weigh-ins.
+export function estimateExpenditure(d: Data, date: string): Expenditure | null {
+  const weight = weightOn(d, date);
+  if (weight === null) return null;
+  const formula = maintenanceKcal(d.profile, weight, Number(date.slice(0, 4)));
+  const from = shiftDate(date, -(SMART_DAYS - 1));
+  const weighIns = d.weights.filter((w) => w.date >= from && w.date <= date);
+  const logs = Array.from({ length: SMART_DAYS }, (_, i) => d.days[shiftDate(from, i)])
+    .filter((l): l is DayLog => !!l && foodTotals(l).kcal >= formula * MIN_LOGGED_SHARE);
+  const span = weighIns.length > 1 ? dayNumber(weighIns[weighIns.length - 1].date) - dayNumber(weighIns[0].date) : 0;
+  const slope = weighIns.length > 1 ? weightSlope(weighIns) : 0;
+  const average = (f: (l: DayLog) => number) => (logs.length ? logs.reduce((sum, l) => sum + f(l), 0) / logs.length : 0);
+  const measured = average((l) => foodTotals(l).kcal) - slope * KCAL_PER_KG - average(exerciseTotal);
+  const ready = weighIns.length >= MIN_WEIGH_INS && span >= MIN_SPAN && logs.length >= MIN_FOOD_DAYS;
+  const trust = ready ? Math.min(1, (span - 7) / 20) : 0;
+  const blended = Math.min(formula * (1 + MAX_SHIFT), Math.max(formula * (1 - MAX_SHIFT), formula + trust * (measured - formula)));
+  return {
+    kcal: Math.round(blended / 10) * 10, formula: Math.round(formula), measured: Math.round(measured),
+    foodDays: logs.length, span, weighIns: weighIns.length, kgPerWeek: slope * 7, trust, ready,
+  };
 }
 
 // Days in a row with food logged, up to today (or yesterday while today is still empty).
@@ -355,14 +413,18 @@ export function mealForHour(hour: number): Meal {
 export interface DailyGoals extends Nutrients {
   waterMl: number;
   micros: Record<Micro, number | null>;
+  smart: Expenditure | null; // when the smart goal is on (it may still be learning)
 }
 
 export function goalsFor(d: Data, date: string): DailyGoals | null {
   const weight = weightOn(d, date);
   if (weight === null && d.goals.kcalOverride === null) return null;
-  const kcal = d.goals.kcalOverride ?? calorieGoal(d.profile, weight!, Number(date.slice(0, 4)));
+  const smart = d.goals.smartGoal && d.goals.kcalOverride === null ? estimateExpenditure(d, date) : null;
+  const kcal = d.goals.kcalOverride
+    ?? (smart?.ready ? goalFromMaintenance(d.profile, smart.kcal) : calorieGoal(d.profile, weight!, Number(date.slice(0, 4))));
   return {
     kcal,
+    smart,
     ...macroGrams(kcal, d.goals),
     sugar: d.goals.sugarG ?? autoSugar(kcal),
     fiber: d.goals.fiberG ?? autoFiber(kcal),

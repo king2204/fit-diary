@@ -7,7 +7,7 @@ import { esc } from './html';
 import { localMatches, matches, rankFoods, suggestSearches } from './suggest';
 import { autoFiber, autoSugar, bmr, calorieGoal, exerciseKcal, fiveWeekWeight, macroGrams, macroPct, microGoals, scale } from './nutrition';
 import {
-  addFood, copyMeal, day, defaultData, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, microTotals, parseData, projection, recipeFood,
+  addFood, copyMeal, day, defaultData, estimateExpenditure, foodTotals, goalsFor, itemsTotals, logItems, mealForHour, microTotals, parseData, projection, recipeFood,
   saveMeal, setWeight, shiftDate, streak, unitsFor, weekExercise, weightOn, weightProgress, type Food, type Unit,
 } from './store';
 
@@ -341,6 +341,59 @@ describe('goals and projections', () => {
     expect([pct.carbs, pct.protein, pct.fat].map(Math.round)).toEqual([67, 33, 0]);
     expect(macroPct(scale(apple.per100, 0))).toBeNull();
     expect([7, 12, 16, 19, 23].map(mealForHour)).toEqual(['breakfast', 'lunch', 'snacks', 'dinner', 'snacks']);
+  });
+});
+
+describe('smart calorie goal', () => {
+  const profile = { sex: 'male' as const, birthYear: 1996, heightCm: 180, activity: 'moderate' as const, weeklyChangeKg: -0.5 };
+  // 28 days from Oct 1: eating `kcal` a day, weighing in every 3 days while losing `kgPerWeek`.
+  function month(kcal: number, kgPerWeek: number, exercise = 0) {
+    const d = { ...defaultData(), profile };
+    for (let i = 0; i < 28; i++) {
+      const date = shiftDate('2026-10-01', i);
+      addFood(d, date, 'lunch', apple, kcal / 0.52, g);
+      if (exercise) day(d, date).exercises.push({ id: `x${i}`, name: 'Run', minutes: 30, kcal: exercise });
+      if (i % 3 === 0) setWeight(d, date, 80 - (kgPerWeek * i) / 7);
+    }
+    return d;
+  }
+
+  it('learns the real daily burn from food and the weight trend', () => {
+    const e = estimateExpenditure(month(2000, 0.5), '2026-10-28')!;
+    // Losing 0.5 kg a week on 2,000 kcal: 0.5 x 7,700 / 7 = 550 kcal a day came from the body.
+    expect(e).toMatchObject({ ready: true, kcal: 2550, measured: 2550, foodDays: 28, weighIns: 10, span: 27 });
+    expect(e.kgPerWeek).toBeCloseTo(-0.5);
+    // The goal for losing 0.5 kg a week is then what this person already eats.
+    expect(goalsFor(month(2000, 0.5), '2026-10-28')).toMatchObject({ kcal: 2000 });
+  });
+
+  it('takes out logged exercise, which the diary adds back each day', () => {
+    expect(estimateExpenditure(month(2300, 0.5, 300), '2026-10-28')!.kcal).toBe(2550);
+  });
+
+  it('skips days that look half-logged', () => {
+    const d = month(2000, 0.5);
+    day(d, '2026-10-05').foods[0].grams = 500 / 0.52; // only 500 kcal logged that day
+    expect(estimateExpenditure(d, '2026-10-28')).toMatchObject({ foodDays: 27, kcal: 2550 });
+  });
+
+  it('waits for enough data, leans on the formula at first, and never strays more than 25%', () => {
+    const d = month(2000, 0.5);
+    expect(estimateExpenditure(d, '2026-10-10')).toMatchObject({ ready: false, foodDays: 10, span: 9 });
+    const early = estimateExpenditure(d, '2026-10-16')!; // 2 weeks of weigh-ins: trusts the data 35%
+    expect(early.ready).toBe(true);
+    expect(early.kcal).toBe(Math.round((early.formula + 0.35 * (early.measured - early.formula)) / 10) * 10);
+    const wild = estimateExpenditure(month(2000, 2), '2026-10-28')!; // 2 kg a week: likely water, not fat
+    expect(wild.kcal).toBe(Math.round((wild.formula * 1.25) / 10) * 10);
+  });
+
+  it('can be turned off, and a calorie goal typed by hand wins', () => {
+    const d = month(2000, 0.5);
+    d.goals.smartGoal = false;
+    expect(goalsFor(d, '2026-10-28')!.kcal).toBe(calorieGoal(profile, weightOn(d, '2026-10-28')!, 2026));
+    d.goals.smartGoal = true;
+    d.goals.kcalOverride = 1800;
+    expect(goalsFor(d, '2026-10-28')).toMatchObject({ kcal: 1800, smart: null });
   });
 });
 

@@ -81,7 +81,7 @@ export const ACTIVITY_LABELS: Record<Activity, string> = {
 const ACTIVITY_FACTOR: Record<Activity, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, very: 1.725 };
 
 // Body fat stores about 7700 kcal per kg.
-const KCAL_PER_KG = 7700;
+export const KCAL_PER_KG = 7700;
 // Common safety floors for self-set calorie goals.
 export const MIN_KCAL: Record<Sex, number> = { female: 1200, male: 1500 };
 
@@ -104,7 +104,12 @@ export function maintenanceKcal(p: Profile, weightKg: number, year: number): num
 }
 
 export function calorieGoal(p: Profile, weightKg: number, year: number): number {
-  const goal = maintenanceKcal(p, weightKg, year) + (p.weeklyChangeKg * KCAL_PER_KG) / 7;
+  return goalFromMaintenance(p, maintenanceKcal(p, weightKg, year));
+}
+
+// Daily goal from what the body burns, with the weekly change and a safety floor.
+export function goalFromMaintenance(p: Profile, maintenance: number): number {
+  const goal = maintenance + (p.weeklyChangeKg * KCAL_PER_KG) / 7;
   return Math.max(MIN_KCAL[p.sex], Math.round(goal / 10) * 10);
 }
 

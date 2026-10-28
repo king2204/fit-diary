@@ -1,9 +1,10 @@
 // Goals: about you, weight goal, calorie and macro goals, fitness and water goals — all in one form.
 import { back, state, store, today, type Handlers, type Screen } from '../core';
 import {
-  ACTIVITY_LABELS, AUTO_SODIUM, MICROS, MICRO_KEYS, autoFiber, autoSugar, calorieGoal, macroGrams, microGoals, type Activity, type Profile, type Sex,
+  ACTIVITY_LABELS, AUTO_SODIUM, MICROS, MICRO_KEYS, autoFiber, autoSugar, calorieGoal, goalFromMaintenance, macroGrams, microGoals, type Activity,
+  type Profile, type Sex,
 } from '../nutrition';
-import { setWeight, weightOn, weightProgress } from '../store';
+import { estimateExpenditure, setWeight, weightOn, weightProgress, type Expenditure } from '../store';
 import { amount, dec1, header, kcal, numField, option, shortDay } from '../ui';
 
 const WEEKLY_CHANGES: [number, string][] = [
@@ -22,8 +23,23 @@ function profileFrom(fd: FormData): Profile {
   };
 }
 
+// What the smart calorie goal knows so far, in words.
+export function smartText(e: Expenditure | null): string {
+  if (!e) return 'Log your weight to start.';
+  if (!e.ready) {
+    return `Learning how much you really burn: ${Math.min(e.foodDays, 10)} of 10 days of food logged, ${Math.min(e.span, 14)} of 14 days of `
+      + `weigh-ins (at least 3) in the last 4 weeks. Until then your goal comes from the formula.`;
+  }
+  const diff = Math.round(((e.kcal - e.formula) / e.formula) * 100);
+  const vs = Math.abs(diff) < 3 ? 'about what the formula expected' : `${Math.abs(diff)}% ${diff > 0 ? 'more' : 'less'} than the formula expected (${kcal(e.formula)})`;
+  return `Your body burns about <b>${kcal(e.kcal)} kcal</b> a day, not counting exercise you log: ${vs}. From ${e.foodDays} days of food and `
+    + `your weight trend (${e.kgPerWeek > 0 ? '+' : ''}${dec1(e.kgPerWeek)} kg a week)${e.trust < 1 ? `; it trusts your data more each week (now ${Math.round(e.trust * 100)}%)` : ''}.`
+    + (diff <= -10 ? ' If you sometimes forget to log food, this number comes out too low, so log everything you eat.' : '');
+}
+
 // The live summary under the form: calculated calories, macro grams, and time to the goal weight.
 interface Summary {
+  smart: string;
   calc: string;
   macros: string;
   eta: string;
@@ -32,12 +48,15 @@ interface Summary {
   micros: string;
 }
 
-function summary(fd: FormData): Summary {
+function summary(fd: FormData, smartOn: boolean): Summary {
   const p = profileFrom(fd);
   const kg = n(fd, 'weightKg');
   const goalKg = n(fd, 'goalWeightKg');
-  const calc = kg > 0 && p.heightCm > 0 && p.birthYear > 1900 ? calorieGoal(p, kg, new Date().getFullYear()) : null;
-  const kcalGoal = n(fd, 'kcalOverride') || calc;
+  const override = n(fd, 'kcalOverride');
+  const formula = kg > 0 && p.heightCm > 0 && p.birthYear > 1900 ? calorieGoal(p, kg, new Date().getFullYear()) : null;
+  const burn = smartOn && formula !== null ? estimateExpenditure({ ...state.data, profile: p }, today()) : null;
+  const calc = burn?.ready ? goalFromMaintenance(p, burn.kcal) : formula;
+  const kcalGoal = override || calc;
   const pct = n(fd, 'carbsPct') + n(fd, 'proteinPct') + n(fd, 'fatPct');
   let macros = '';
   if (Math.round(pct) !== 100) macros = `Carbs, protein and fat add up to ${pct}%. They must add up to 100%.`;
@@ -62,7 +81,10 @@ function summary(fd: FormData): Summary {
   const age = new Date().getFullYear() - n(fd, 'birthYear');
   const micros = kcalGoal ? microGoals(p.sex, age, kcalGoal) : null;
   return {
-    calc: calc !== null ? `Calculated for you: <b>${kcal(calc)} kcal</b> a day.` : 'Enter your weight, height and birth year to calculate it.',
+    smart: !smartOn ? 'Off: your goal comes from the formula (your size, age and activity level).'
+      : override ? 'Not used while you have your own calorie goal below.' : smartText(burn),
+    calc: calc !== null ? `${burn?.ready ? 'Smart goal' : 'Calculated'} for you: <b>${kcal(calc)} kcal</b> a day.`
+      : 'Enter your weight, height and birth year to calculate it.',
     macros, eta,
     sugar: kcalGoal ? String(autoSugar(kcalGoal)) : '',
     fiber: kcalGoal ? String(autoFiber(kcalGoal)) : '',
@@ -79,7 +101,7 @@ export function goalsView(_s: Extract<Screen, { name: 'goals' }>): string {
   const start = d.weights[0];
   const fd = new FormData();
   for (const [k, v] of Object.entries({ ...p, ...g, weightKg: w ?? '', goalWeightKg: g.goalWeightKg ?? '', kcalOverride: g.kcalOverride ?? '' })) fd.set(k, String(v));
-  const sum = summary(fd);
+  const sum = summary(fd, g.smartGoal);
   const progress = weightProgress(d);
   return `${header('Goals', { back: true })}<main>
     <form data-form="goals" class="stack">
@@ -102,6 +124,9 @@ export function goalsView(_s: Extract<Screen, { name: 'goals' }>): string {
         <p class="muted">Losing 0.5 kg a week means eating about 550 kcal a day less than you burn. 0.25–0.5 kg a week is easier to keep up.</p>
       </section>
       <section class="card stack"><h2>Calories and macros</h2>
+        <label class="check-row"><input type="checkbox" name="smartGoal" ${g.smartGoal ? 'checked' : ''}>
+          <span><b>Smart calorie goal</b><small>Learns how much you really burn from your weigh-ins and food log, then sets your goal from that.</small></span></label>
+        <p class="muted" id="goal-smart">${sum.smart}</p>
         <p id="goal-calc">${sum.calc}</p>
         ${numField('kcalOverride', 'My own calorie goal (leave empty to use the calculated one)', false, g.kcalOverride !== null ? String(g.kcalOverride) : '')}
         <p class="muted">Macros, % of calories (must add up to 100):</p>
@@ -128,7 +153,9 @@ export function goalsView(_s: Extract<Screen, { name: 'goals' }>): string {
 export const handlers: Handlers = {
   inputs: {
     goals: (form) => {
-      const sum = summary(new FormData(form));
+      const fd = new FormData(form);
+      const sum = summary(fd, fd.get('smartGoal') === 'on');
+      document.getElementById('goal-smart')!.innerHTML = sum.smart;
       document.getElementById('goal-calc')!.innerHTML = sum.calc;
       document.getElementById('goal-macros')!.textContent = sum.macros;
       document.getElementById('goal-micros')!.innerHTML = sum.micros;
@@ -152,6 +179,7 @@ export const handlers: Handlers = {
       d.goals = {
         ...d.goals,
         kcalOverride: override ? Number(override) : null,
+        smartGoal: fd.get('smartGoal') === 'on',
         goalWeightKg: n(fd, 'goalWeightKg') || null,
         carbsPct: n(fd, 'carbsPct'), proteinPct: n(fd, 'proteinPct'), fatPct: n(fd, 'fatPct'),
         sugarG: optional(fd, 'sugarG'), fiberG: optional(fd, 'fiberG'), sodiumMg: optional(fd, 'sodiumMg'), waterMl: n(fd, 'waterMl'),
