@@ -1,5 +1,6 @@
 // Food search and barcode lookup using Open Food Facts and USDA FoodData Central.
 import { zero, type Micro, type Micros, type Nutrients } from './nutrition';
+import { searchBasicFoods } from './basicfoods';
 import type { Food, Unit } from './store';
 import { rankFoods } from './suggest';
 
@@ -176,17 +177,31 @@ export interface SearchResult {
   more: boolean; // another page of results exists
 }
 
+const PAGE = 25;
+
+// Built-in basic foods (no limits) plus brand products online. The built-in list is USDA's SR Legacy,
+// so the online search asks USDA only for its other foods.
 export async function searchFoods(query: string, usdaKey: string, page = 1): Promise<SearchResult> {
-  const [usda, off] = await Promise.allSettled([searchUsda(query, usdaKey, undefined, page), searchOff(query, page)]);
+  const [basic, usda, off] = await Promise.allSettled([
+    searchBasicFoods(query), searchUsda(query, usdaKey, 'Foundation,Branded', page), searchOff(query, page),
+  ]);
   const foods: Food[] = [];
   const problems: string[] = [];
-  if (usda.status === 'fulfilled') foods.push(...(usda.value.foods ?? []).map(parseUsdaFood).filter((f): f is Food => f !== null));
-  else problems.push(usda.reason instanceof RateLimitError
-    ? 'USDA search limit reached. Add your free USDA key in Settings for more searches.'
-    : 'USDA search is not available right now.');
+  let best: Food[] = []; // pinned best matches stay on top of the first page
+  let more = false;
+  if (basic.status === 'fulfilled') {
+    if (page === 1) best = basic.value.best;
+    foods.push(...basic.value.rest.slice((page - 1) * PAGE, page * PAGE));
+    more = basic.value.rest.length > page * PAGE;
+  } else problems.push('The built-in food list could not load. Check your internet connection.');
+  if (usda.status === 'fulfilled') {
+    foods.push(...(usda.value.foods ?? []).map(parseUsdaFood).filter((f): f is Food => f !== null));
+    more ||= (usda.value.totalPages ?? 1) > page;
+  } else problems.push(usda.reason instanceof RateLimitError
+    ? 'Brand products are missing: the free USDA search limit is used up for now. Add your free USDA key in Settings.'
+    : 'Brand products are missing: USDA online search is not available right now.');
   if (off.status === 'fulfilled') foods.push(...off.value);
-  const more = usda.status === 'fulfilled' && (usda.value.totalPages ?? 1) > page;
-  return { foods: rankFoods(query, foods), problems, more };
+  return { foods: [...best, ...rankFoods(query, foods)], problems, more };
 }
 
 // Open Food Facts first (worldwide products), then USDA branded foods by UPC.

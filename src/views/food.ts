@@ -1,6 +1,7 @@
 // Finding foods (search, history, my meals/recipes/foods, barcode) and choosing an amount.
 import { donut } from '../charts';
 import { go, onLeave, persist, render, state, store, type FoodTab, type Handlers, type Screen, type Target } from '../core';
+import { findBasicFood } from '../basicfoods';
 import { lookupBarcode, searchFoods, usdaPortions } from '../foods';
 import { esc } from '../html';
 import { MICROS, MICRO_KEYS, NUTRIENT_KEYS, macroPct, scale, scaleMicros, type Micro, type Micros, type Nutrients } from '../nutrition';
@@ -35,15 +36,18 @@ function listFoods(s: AddScreen, list: string): Food[] {
   return recipeFoods();
 }
 
-function servingText(f: Food): string {
-  if (!f.servingGrams) return '100 g';
-  return f.servingLabel || `1 serving (${grams(f.servingGrams)} g)`;
+// The amount + adds and the row describes: "1 cup (156 g)", "1/2 cup", or "100 g".
+function rowPortion(f: Food): { label: string; grams: number } {
+  const { amount: n, unit } = startingAmount(f);
+  if (unit.label === 'g') return { label: `${n} g`, grams: n };
+  if (f.servingGrams && unit.grams === f.servingGrams && f.servingLabel) return { label: f.servingLabel, grams: unit.grams };
+  return { label: `${/^\d/.test(unit.label) ? '' : '1 '}${unit.label} (${grams(unit.grams)} g)`, grams: unit.grams };
 }
 
 function foodRow(f: Food, list: string, i: number): string {
-  const k = f.servingGrams ? scale(f.per100, f.servingGrams).kcal : f.per100.kcal;
+  const p = rowPortion(f);
   return `<li class="row-add"><button data-act="pick" data-list="${list}" data-i="${i}">
-      <span class="name">${esc(f.name)}<small>${kcal(k)} kcal, ${esc(servingText(f))}${f.brand ? `, ${esc(f.brand)}` : ''}</small></span></button>
+      <span class="name">${esc(f.name)}<small>${kcal(scale(f.per100, p.grams).kcal)} kcal, ${esc(p.label)}${f.brand ? `, ${esc(f.brand)}` : ''}</small></span></button>
     <button class="add-circle" data-act="quick-log" data-list="${list}" data-i="${i}" aria-label="Add ${esc(f.name)}">${icon('plus')}</button></li>`;
 }
 
@@ -226,27 +230,33 @@ function formAmount(form: HTMLFormElement, f: Food): { amount: number; unit: Uni
   return { amount: Number(fd.get('amount')) || 0, unit: unitsFor(f)[Number(fd.get('unit'))] };
 }
 
-// Basic USDA foods list household portions in a separate lookup; fetch them once and keep them on the food.
+// Basic USDA foods list household portions separately. They come from the built-in list when it has the food (which
+// also fills in vitamins for foods saved before the list existed), else from USDA online. Kept on the food once found.
 export async function loadPortions(s: FoodScreen): Promise<void> {
   if (!s.food.id.startsWith('usda:') || s.food.portions !== undefined || s.food.servingGrams) return;
   let portions: Unit[] = [];
   try {
-    portions = await usdaPortions(s.food, state.data.usdaKey);
+    const known = await findBasicFood(s.food.id).catch(() => undefined);
+    if (known) {
+      portions = known.portions ?? [];
+      if (!s.food.micros && known.micros) s.food = { ...s.food, micros: known.micros };
+    } else portions = await usdaPortions(s.food, state.data.usdaKey);
   } catch (e) {
     console.warn('Could not load portions', e);
     return;
   }
   s.food = { ...s.food, portions };
-  const select = document.querySelector<HTMLSelectElement>('form[data-form="food"] select[name="unit"]');
-  if (state.screen !== s || !select || !portions.length) return;
+  const form = document.querySelector<HTMLFormElement>('form[data-form="food"]');
+  if (state.screen !== s || !form) return;
+  const select = form.querySelector<HTMLSelectElement>('select[name="unit"]')!;
+  const amountInput = form.querySelector<HTMLInputElement>('input[name="amount"]')!;
   const current = unitsFor({ ...s.food, portions: [] })[Number(select.value)];
-  const amount = document.querySelector<HTMLInputElement>('form[data-form="food"] input[name="amount"]')!;
-  const untouched = current.label === 'g' && amount.value === '100' && !s.entryId;
+  // "100 g" becomes "1 medium" (the first portion) unless the user already changed it.
+  const untouched = portions.length > 0 && current.label === 'g' && amountInput.value === '100' && !s.entryId;
   select.innerHTML = unitOptions(s.food, untouched ? portions[0].label : current.label);
-  if (untouched) {
-    amount.value = '1';
-    document.getElementById('preview')!.innerHTML = nutritionHtml(s.food, portions[0].grams, s.target.kind === 'diary');
-  }
+  if (untouched) amountInput.value = '1';
+  const { amount: n, unit } = formAmount(form, s.food);
+  document.getElementById('preview')!.innerHTML = nutritionHtml(s.food, n * unit.grams, s.target.kind === 'diary');
 }
 
 // Adds an amount of a food to where it is going: a diary meal on the shown day, or the recipe.

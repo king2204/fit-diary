@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { barChart, donut, lineChart, ring } from './charts';
 import { parseOffProduct, parseUsdaFood, parseUsdaPortions } from './foods';
+import { parseBasicFoods, searchBasicList } from './basicfoods';
 import { diaryCsv } from './csv';
 import { esc } from './html';
 import { localMatches, matches, rankFoods, suggestSearches } from './suggest';
@@ -123,6 +124,37 @@ describe('vitamins and minerals', () => {
     expect(microGoals('female', 30, 2000)).toMatchObject({ iron: 18, calcium: 1000, vitA: 700, vitC: 75 });
     expect(microGoals('female', 55, 2000)).toMatchObject({ iron: 8, calcium: 1200, vitB6: 1.5 });
     expect(microGoals('male', 75, 2000)).toMatchObject({ calcium: 1200, vitD: 20, vitB6: 1.7, transFat: null });
+  });
+});
+
+describe('built-in food list', () => {
+  const keys = ['kcal', 'protein', 'carbs', 'fat', 'sugar', 'fiber', 'sodium', 'satFat', 'vitB1', 'vitD'];
+  const row = (id: number, name: string): [number, string, (number | null)[], [string, number][]] => [id, name, [100, 1, 1, 1, 1, 1, 1, null, null, null], []];
+
+  it('reads foods with nutrients, vitamins and portions', () => {
+    const { foods: [oats] } = parseBasicFoods({
+      keys, best: {},
+      foods: [[173904, 'Cereals, oats, regular and quick, not fortified, dry', [379, 13.2, 67.7, 6.52, null, 10.1, 6, 1.11, 0.46, null], [['cup', 81], ['1/3 cup', 27]]]],
+    });
+    expect(oats).toEqual({
+      id: 'usda:173904', name: 'Cereals, oats, regular and quick, not fortified, dry',
+      per100: { kcal: 379, protein: 13.2, carbs: 67.7, fat: 6.52, sugar: 0, fiber: 10.1, sodium: 6 },
+      micros: { satFat: 1.11, vitB1: 0.46 },
+      portions: [{ label: 'cup', grams: 81 }, { label: '1/3 cup', grams: 27 }],
+    });
+  });
+
+  it('puts pinned best matches first, then the best ranked', () => {
+    const list = parseBasicFoods({ keys, best: { milk: [2] }, foods: [
+      row(1, 'Milk, buttermilk, fluid, whole'), row(2, 'Milk, whole, 3.25% milkfat, with added vitamin D'), row(3, 'Milk, sheep, fluid'),
+      row(4, 'Eggplant, raw'), row(5, 'Egg, whole, raw, fresh'), row(6, 'Salmonberries, raw'), row(7, 'Fish, salmon, Atlantic, farmed, raw'),
+    ] });
+    const ids = (r: { best: Food[]; rest: Food[] }) => [...r.best, ...r.rest].map((f) => f.id);
+    expect(ids(searchBasicList(list, ' MILK '))).toEqual(['usda:2', 'usda:1', 'usda:3']);
+    expect(ids(searchBasicList(list, 'egg'))).toEqual(['usda:5', 'usda:4']); // the word itself before "eggplant"
+    expect(ids(searchBasicList(list, 'salmon'))).toEqual(['usda:7', 'usda:6']);
+    // Nothing has both words: foods with some of them follow.
+    expect(ids(searchBasicList(list, 'rolled oats salmon'))).toEqual(['usda:7', 'usda:6']);
   });
 });
 
